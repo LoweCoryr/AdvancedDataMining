@@ -1,0 +1,446 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+title: "Week 2 Basic Classification Models"
+output: html_document
+---
+
+# R Packages
+
+The packages you will need to install for the week are class, gmodels, rpart, rpart.plot, caret, party, and partykit. 
+
+library(class)
+library(gmodels)
+library(rpart)
+library(rpart.plot)
+library(caret)
+library(party)
+library(partykit)
+
+
+# Classification Models
+
+Last week we used linear regression models to make numerical predictions (wages and insurance charges). Our task for this week is to create models that predict categorical class labels. In particular, we will look at two classifical models: **k-nearest neighbor (knn)** and **decision trees**.
+
+
+And in case you are wondering, we are still working with supervised learning algorithms. 
+
+# Background on the Drug Overdose Epidemic
+
+
+In 2015, Angus Deacon and Anne Case, economists (and husband and wife!) from Princeton University, published a [startling study](http://www.nytimes.com/2015/11/03/health/death-rates-rising-for-middle-aged-white-americans-study-finds.html). Deacon and Case found that mortality rate for middle aged (45 to 54 years old) non-Hispanic whites with a high school education or lower increased between 1999 and 2014, even though the mortality rates for all other age and racial groups were declining. This trend was happening even as the mortality rates of middle aged whites in other developed countries were declining. Deacon and Case found that the causes of death among less educated middle aged white Americans include suicide, alcohol, and drug overdose. 
+
+
+Since the publication of the Deacon & Case study, public interest in the drug overdose epidemic has increased. Gina Kolata and Sarah Cohen (2016) of the *New York Times* analyzed 60 million death certificates between 1999 and 2014 and found that the mortality rates among American non-Hispanic whites across all age groups under 65 years old were either rising or flattening. Kolata and Cohen reported: 
+
+**In 2014, the overdose death rate for whites ages 25 to 34 was five times its level in 1999, and the rate for 35- to 44-year-old whites tripled during that period. The numbers cover both illegal and prescription drugs....Rising rates of overdose deaths and suicide appear to have erased the benefits from advances in medical treatment for most age groups of whites** [Kolata and Cohen 2016](http://www.nytimes.com/2016/01/17/science/drug-overdoses-propel-rise-in-mortality-rates-of-young-whites.html).
+
+
+
+# The Dataset
+
+We will be working with a dataset posted on [Kaggle](https://www.kaggle.com/apryor6/us-opiate-prescriptions) by Alan Pryor Jr. The dataset includes non-opioid prescription records and demographic information of 25,000 licensed medical professionals. The prescriptions were written for individuals covered under Class D Medicare. The source of the data is from the [Center for Medicare and Medicaid Services] (https://www.cms.gov/).
+
+The dataset contains the following information:
+
+*Gender of licensed medical professional
+
+*Number of prescriptions written for each of 239 common non-opiate drugs in 2014 by the licensed medical professional
+
+*A series of dummy variables for the state in which the medical professional practiced
+
+*A series of dummy variables for the medical professional's specialty
+
+*A factor variable named "Opioid.Prescriber" indicating whether the medical professional wrote at least 10 prescriptions for opioid drugs in 2014
+
+
+# Prediction Goal
+
+Can we build a model to predict whether a medical professional is likely to be an opioid prescriber? Additionally, can we identify predictors that tell us if a medical professional is more likely to prescribe opioids?
+
+
+# Exploratory Data Analysis
+
+```{r}
+setwd("C:/Users/corylowe/OneDrive/Code/R Practice Code/Applied Data Mining_Portfolio/Week 2")
+prescribers<-read.csv("prescribers.csv")
+
+
+#View(prescribers)
+
+prescribers<-prescribers[,c(241,1:240,242:331)] #Rearranging the columns so that our target variable is first
+
+dim(prescribers)
+#names(prescribers)
+
+table(prescribers$Opioid.Prescriber)
+```
+
+
+
+
+
+# Classifical Models: A Two Step Process
+
+**Step #1: Model Construction**
+
+  * What is my class label? (yes/no)
+
+  * Build a training set (portion of the data used to build a prediction model)
+
+  * Choose a classification algorithm to fit the training set
+  
+  
+**Step #2: Model Usage**
+
+  * Run the classification algorithm on the test set
+
+  * Examine performance of the "prediction exercise" (i.e. Confusion Matrix)
+
+
+
+# k-Nearest Neighbor (kNN): A Lazy Classification Model
+
+kNN is called a "lazy learner" because it does not perform abstraction. Lantz (2013) noted:
+
+*In a single sentence, nearest neighbor classifiers are defined by their characteristics of classifying unlabeled examples by assigning them the class of the most similar labeled examples* (Lantz 2013, p. 66).
+
+When comparing among neighbors, we need to use a distance function. The most common way to measure distance is **Euclidean distance**, or the shortest direct route. 
+
+
+
+
+# How many neighbors (k)?
+
+
+When choosing the number of k, we need to consider the **bias-variance tradeoff**. A large k reduces the variance caused by noisy data but can cause bias in that we risk ignoring small (and important) patterns (Lantz 2013, p. 71).
+
+
+# kNN requires data transformation into a standard range
+
+
+## Min-Max Normalization
+
+
+
+
+Also see page 73 of Lantz text
+
+
+In our prescribers dataset, we have two factors: Gender and Opioid.Prescriber. We will leave the Opioid.Prescriber alone since this is our target variable. We need to change Gender into a dummy variable so that it will be on the same 0,1 scale as our other variables (once we perform min-max normalization).
+
+
+```{r}
+prescribers$Male <-ifelse(prescribers$Gender=="M",1,0) #if Male = 1; if Female=0.
+prescribers<-prescribers[,-2] #We do not need the Gender variable anymore.
+
+names(prescribers)
+```
+
+Here is the breakdown of the 331 variables:
+
+Column 1: target variable 
+
+Columns 2-240: number of prescriptions written for each non-opioid drug
+
+Columns 241-291: state dummy variables
+
+Columns 292-330: medical speciality dummy variables
+
+Column 331: dummy variable for male (i.e. gender)
+
+We need to do min-max normalization for columns 2-240 and then add that with our other colums (already on the 0-1 scale).
+
+
+```{r}
+drugs<-prescribers[,2:240]
+normalize<- function(x){return((x-min(x))/(max(x)-min(x)))}
+drugs_n<-as.data.frame(lapply(drugs, normalize))
+```
+lapply wil apply as a list
+
+
+Let's check our work to see if we did it correctly!
+
+
+```{r}
+summary(drugs$ABILIFY) #Range was between 0 and 770
+summary(drugs_n$ABILIFY) #Notice the range is now between 0 and 1
+```
+
+
+Now we are going to combine the normalized variables with our dummy variables and the target variable.
+
+
+```{r}
+prescribers_n<-cbind(prescribers[,c(1,241:331)], drugs_n[,])
+
+prescribers_n<-prescribers_n[complete.cases(prescribers_n),]
+```
+
+
+# Train and Test Sets
+
+We divide our dataset into two subsets: training set and a test set. We use the training set to "train" our kNN model. We then use that model to predict the observations in our test set. This is how we gauge the performance of our prediction model. We will split our dataset into 80-20 (80% training and 20% test sets). 
+
+
+```{r}
+prescribers_n_train <- prescribers_n[1:20000,2:331]
+prescribers_n_test <- prescribers_n[20001:25000,2:331]
+
+prescribers_n_train_labels<-prescribers_n[1:20000,1]
+prescribers_n_test_labels<-prescribers_n[20001:25000,1]
+```
+
+
+We will use the **class** package to perform kNN.
+
+
+```{r}
+library(class)
+prescribers_pred<-knn(train=prescribers_n_train, test=prescribers_n_test, cl=prescribers_n_train_labels, k=158)
+```
+
+
+# Evaluating Model Performance
+
+
+
+You have to decide what is a "positive" versus a "negative" case in your dataset! We will label a positive case as someone who did prescribe opioids more than 10 times in 2014. A negative case is someone who did not.
+
+
+True Positives = 2308
+
+True Negatives = 1550
+
+False Positives = 500
+
+False Negatives = 642
+
+
+```{r}
+library(gmodels)
+
+CrossTable(x=prescribers_n_test_labels, y=prescribers_pred, prob.chisq=FALSE)
+
+Sensitivity = (2308/(2308+500))*100
+Specificity = (1550/(1500+642))*100
+Precision = (2308/(2308+500))*100
+Accuracy = ((1550+2308)/5000)*100
+
+print(Accuracy)
+```
+
+
+Our lazy learner correctly classified **77.16%** of all the medical professionals as individuals who did or did not prescribe opioids more than 10 times in 2014. Not bad for a lazy learner!
+
+
+# Improving on the kNN Model
+
+You should play around with the k value to see if you can improve the model performance. Try it!
+
+
+# Z score standardization
+
+
+```{r}
+prescribers_z <- as.data.frame(scale(prescribers[-1]))
+
+summary(prescribers$ABILIFY)
+
+summary(prescribers_z$ABILIFY) #notice that the max value is not compressed towards 1.
+
+prescribers_z_train<-prescribers_z[1:20000, ]
+prescribers_z_test<-prescribers_z[20001:25000, ]
+
+prescribers_z_train_labels<-prescribers[1:20000,1]
+prescribers_z_test_labels<-prescribers[20001:25000,1]
+
+prescribers_z_pred <- knn(train=prescribers_z_train, test=prescribers_z_test, cl=prescribers_z_train_labels, k=158)
+
+CrossTable(x=prescribers_z_test_labels, y=prescribers_z_pred, prop.chisq = FALSE)
+
+Accuracy = ((1466+2191)/5000)*100
+
+print(Accuracy)
+```
+
+Z-transformation actually reduced the accuracy rate: **77.14%**.
+
+
+
+# Decision Trees: A More Sophisticated Classification Model
+
+
+Decision trees follow recursive partitioning (top down greedy divide and conquer approach)
+
+1. Choose the attribute that is most predictive of the target variable
+
+2. Observations in the training data set are divided into groups of distinct values. This form the first set of branches.
+
+3. Continue to divide and conquer the nodes, choosing the feature with the most prediction power each time until one of three conditions occur:
+
+* all observations for a given node belong to the same class
+
+* no more remaining attributes for further partitioning
+
+* no observations are left
+
+
+
+# Splitting Criterion
+
+
+
+
+# Creating a Training and Test Set by Randomizing Observations
+
+
+```{r}
+set.seed(12345) #set a seed to do draws from a random uniform distribution.
+prescribers_rand <- prescribers[order(runif(25000)), ] 
+prescribers_train <- prescribers_rand[1:20000, ] #Training data set; 3000 observations
+prescribers_test  <-prescribers_rand[20001:25000, ]
+```
+
+
+# Using rpart to Build a Decision Tree
+
+```{r}
+library(rpart)
+
+prescribers_rpart <- rpart(prescribers_train$Opioid.Prescriber~., method="class", parms = list(split="gini"), data=prescribers_train)
+
+
+#More on the method options: 
+# a. method="class" --> categorical (yes/no) 
+# b. method="anova" --> continuous 
+# c. method="poisson" --> count
+# d. method="exp" --> survival analysis (in poverty/out of poverty)
+
+#More on the parms option:
+#a. The default splitting criterion is the Gini Index. 
+```
+
+# Root, Nodes, and Leaves
+
+```{r}
+summary(prescribers_rpart)
+```
+
+# Visualizing the Decision Tree
+
+
+```{r}
+plot(prescribers_rpart, uniform=TRUE, main="Classification Tree for Opioid Prescribers")
+text(prescribers_rpart, use.n=TRUE, all=TRUE, cex=0.8)
+
+
+# Something a bit fancier
+library(rpart.plot)
+rpart.plot(prescribers_rpart, type=0, extra=101)
+#rpart.plot(prescribers_rpart, type=1, extra=101)
+
+
+
+# Even fancier?
+library(party)
+library(partykit)
+prescribers_party<-as.party(prescribers_rpart)
+plot(prescribers_party)
+```
+
+
+
+
+# Evaluating Model Performance
+
+
+
+```{r}
+library(caret)
+actual <- prescribers_test$Opioid.Prescriber
+predicted <- predict(prescribers_rpart, prescribers_test, type="class")
+predicted <- predict(prescribers_rpart, prescribers_test, type="class")
+results.matrix <- confusionMatrix(predicted, actual, positive="yes")
+print(results.matrix)
+```
+
+
+Notice that our accuracy rate is **75.6%**, which is less than **77.16%** in our kNN model (k=158 and using min-max transformation).
+
+
+
+# Using the Complexity Parameter (CP Value) to Prune the Decision Tree
+
+```{r}
+cptable<-printcp(prescribers_rpart)
+cptable
+set.cp.value<-cptable[which.min(cptable[,"xerror"]),"CP"]
+
+Pruned_prescribers_rpart <- prune(prescribers_rpart, cp=set.cp.value)
+
+rpart.plot(Pruned_prescribers_rpart, type=0, extra=101)
+```
+
+
+Well, that did not do anything! The tree is the same as before. This is due to the fact that the CP value continues to decrease with more splits. Time to try something else!
+
+
+# Visualizing Cross Validation Results
+
+
+This plots the size of tree (nsplit+1) on top and the complexity parameter at the bottom (x-axis). The red line is the minimum cross validated error (or xerror) + one standard deviation (or xstd). 
+
+
+```{r}
+cptable<-printcp(prescribers_rpart)
+cptable
+plotcp(prescribers_rpart, minline=TRUE, col="red") 
+```
+
+
+# Picking a Tree Size
+
+Method 1: Look for the "elbow" in the CP plot. Set the tree size at the cp value where the "elbow" occurs.
+
+Method 2: Pick the cp value that is within one standard deviation of the minimum xerror (the red line).
+
+Method 3: Manually prune the tree until desired result is achieved.
+
+
+```{r}
+Pruned_prescribers_rpart <-prune(prescribers_rpart,cp=.05, minsplit=10, minbucket=round(minsplit/3)) # Going with 4 splits
+
+plot(Pruned_prescribers_rpart, uniform=TRUE,main="Classification Tree for Opioid Prescribers")
+text(Pruned_prescribers_rpart, use.n=TRUE, all=TRUE, cex=.8)
+
+rpart.plot(Pruned_prescribers_rpart, type=1, extra=101)
+
+Pruned_prescribers_party<-as.party(Pruned_prescribers_rpart)
+plot(Pruned_prescribers_party)
+```
+
+
+```{r}
+actual <- prescribers_test$Opioid.Prescriber
+predicted <- predict(Pruned_prescribers_rpart, prescribers_test, type="class")
+results.matrix <- confusionMatrix(predicted, actual, positive="yes")
+print(results.matrix)
+```
+
+
+
+
+Our pruned tree perform nearly as well as our fully grown tree. Accuracy rate is **74.68%** whereas it was previously **75.6%**.
+
+
+# Exploring rpart.control
+
+You should play around with rpart.control to do additional tree pruning.
+
+```{r}
+#help(rpart.control)
+```
