@@ -1,0 +1,440 @@
+---
+title: 'Week 1: Dissecting the Linear Regression Model'
+output:
+  pdf_document: default
+  html_document: default
+---
+# Required R Packages
+
+Install these two packages into your machine: **car** and **corrplot**.
+
+# Supervised Learning
+
+Basic terms:
+
+Target Variable|Dependent Variable: the variable whose values we want to predict/model
+
+Predictor Variable|Independent Variable|Feature: the variable(s) we use to predict/model the target or dependent variable
+
+Linear regression is a supervised learning algorithm. 
+
+# Goal 
+
+Our goal is predict a person's wage and salary earning. We are given eight predictors.
+
+# Data
+
+Our dataset contains all civilian persons who were sampled for the March Supplement of the 2014 Current Population Survey (CPS) and earned $200,000 or less in wage and salary. Here is more information about the CPS: https://en.wikipedia.org/wiki/Current_Population_Survey_(US)
+
+```{r}
+getwd()
+setwd("C:/Users/corylowe/OneDrive/Code/R Practice Code/Applied Data Mining_Portfolio/Week 1")
+
+CPS<-read.csv(file="March_CPS_2014.csv")
+```
+
+# Viewing the Data Frame
+```{r}
+str(CPS)
+summary(CPS)
+dim(CPS)
+names(CPS)
+```
+
+# Visualizing the Data
+```{r}
+hist(CPS$Wage.and.Salary) 
+boxplot(CPS$Wage.and.Salary)
+
+count_Class.of.Worker<-table(CPS$Class.of.Worker)
+count_Class.of.Worker
+barplot(count_Class.of.Worker)
+
+Numeric_Vars <-CPS[,c(1:2,6)]
+Correlation_Matrix <- cor(Numeric_Vars)
+
+library(corrplot)
+corrplot.mixed(Correlation_Matrix)
+
+```
+
+Check out this link on EDA: http://www.r-bloggers.com/exploratory-data-analysis-useful-r-functions-for-exploring-a-data-frame/
+
+# Simple Linear Regression
+
+The starting point for linear regression analysis is the assumption that the relationship between the target and the predictor(s) variables is best represented by a line. The functional form of a simple linear regression model is as follows:
+
+Y(i)=B(0)+B(1)*X+E(i)
+
+Where, 
+
+Y(i) is the target (i.e. outcome) for observation i
+
+B(0) is the y-intercept, which shows what Y_i is equal to when there is no predictor variable X
+
+B(1) is the slope, or how much Y_i changes when there is a one unit change in the predictor variable X
+
+X is the predictor variable
+
+E(i) is the error term, or the remaining variability in the target Y that is not explained by the predictor X
+
+# Ordinary Least Squares
+
+In a simple linear regression model, we do not know the value of B because we do not have all the data points for the entire population. We are usually working with a sample (i.e. some number of data points from the population of interest). Consequently, we have to come up with an estimate for B. The most common estimation method is called ordinary least squares (OLS). 
+
+The OLS method chooses the value of B so as to minimize the residual sum of squares (RSS). The RSS is the sum of the squared values of the residuals. Each residual is the difference between the actual target value and the estimated target value. 
+
+e(i)=Y(i)-Yhat(i)
+Where,
+e(i) = residual
+Y(i) = actual target value
+Yhat(i) = predicted/estimated target value
+
+Minimizes RSS = e(1)^2 + e(2)^2 + ... + e(n)^2
+
+# Model 1: Does Educational Attainment Matter?
+
+```{r}
+Model.1<-lm(Wage.and.Salary~Years.of.Education,data=CPS)
+summary(Model.1)
+```
+
+# Interpreting Model 1
+
+Questions to answer:
+
+1. On average, how much Wage.and.Salary change for every additional year of educational attainment?
+
+2. Is the coefficient of Years.of.Education significantly different from zero? 
+
+3. What's the y-intercept? Why does that even matter?
+
+4. How well does Years.of.Education explain Wage.and.Salary? (i.e. Goodness of Fit)
+
+# Explaining the Statistical Significance of Educational Attainment (i.e. the observed relationship is not by chance!)
+
+The hypothesis test we are conducting for educational attainment is as follows:
+
+H0: Years.of.Education does not explain Wage.and.Salary (B = 0)
+
+H1: Years.of.Education does explain Wage.and.Salary (B IS NOT EQUAL to 0)
+
+**If p-value < level of significance, you reject the null hypothesis (H0). Otherwise, you fail to reject H0.** 
+
+
+# Visualizing Model 1
+
+```{r}
+plot(CPS$Years.of.Education,CPS$Wage.and.Salary)
+abline(Model.1,lwd=3,col="red") 
+```
+
+# Assumptions of the Linear Regression Model
+
+1. **No Autocorrelation**: Error values (e) are statistically independent. This assumption is typically violated when you are working with time series data. 
+
+2. **Normality of Error Distribution**: The probability distribution of the errors is normal.
+
+3. **Homoskedasticity**: The probability distribution of the errors has constant variance. When this assumption is violated, it is called heteroscedasticity. 
+
+4. **Linearity and Additive**: The underlying relationship between the x variable and the y variable is linear. Furthermore, the effects of x's on y is additive. 
+
+Good link with additional information: http://people.duke.edu/~rnau/testing.htm 
+
+```{r}
+par(mfrow=c(2,2)) #Sets the parameters to put the 4 following plots on the same page
+plot(Model.1)
+```
+
+**Residual vs Fitted Plot**-The plotted values should look random (i.e. no pattern). If the residuals are getting larger as the fitted values get bigger (a red line showing an upward trend), then assumption #3 (homoskedasticity) is violated. If the plot shows a curvilinear relationship, then assumption #4 (linearity) is violated.
+
+**Normal Q-Q Plot**-The plotted values should be a straight line. If it is curved (especially an S shape), then assumption #2 (normality of errors) is violated. 
+
+**Scale-Location Plot**-This plot is a repeat of the Residuals vs. Fitted Plot but on a different scale. The square root of the standardized residuals are plotted against the fitted values. 
+
+**Residuals vs. Leverage**-This plot highlights the values of the target variable (Y) that have the highest effect on the parameter estimates. These are called "high influence" points.  
+
+# Diagnostic Tests
+
+There are other ways to check for some of the assumptions of linear regression. 
+
+-**Checking for No Autocorrelation**: Use Durbin Watson statistic. DW statistic close to 2 means there is no autocorrelation. Closer to 0 means positive autocorrelation. Closer to 4 means negative autocorrelation.
+
+H0: There is no autocorrelation.
+H1: There is autocorrelation.
+
+```{r}
+library(car)
+durbinWatsonTest(Model.1)
+```
+
+_**Checking for Homoskedasticity**
+
+H0: Errors have constant variance (homoskedasticity)
+H1: Errors do not have constant variance (heteroskedasticity)
+
+```{r}
+ncvTest(Model.1)
+```
+
+# Model 2: Does Sex Matter Too?
+
+We discovered so far that educational attainment does matter. Let's extend our model! What about sex? When we consider more than one predictor, our simple linear regression model transforms into **multiple** linear regression model.
+
+The functional form of the multiple linear regression model is as follows:
+
+Y(i)=B(0) + B(1)* X(1) + B(2) * X(2) + B(3) * X(3)+ ... +B(k) * X(k) + E(i)
+
+Where, 
+
+Y(i) is the target (i.e. outcome) for observation i
+
+B(0) is the y-intercept, which shows what Y_i is equal to when there are no predictors
+
+B(k) is the slope, or how much Y(i) changes when there is a one unit change in the predictor variable X(k)
+
+X(k) is a predictor variable
+
+E(i) is the error term, or the remaining variability in the target Y that is not explained by the predictors 
+
+When we extend the case to multiple linear regression models, we fit them the same way as we do with the simple linear regression models. We still want to find values of B's that minimize the sum of squared residuals. (Instead of finding the best fitting line, we are now looking for the best fitting plane in a multi-dimensional space.)  
+
+```{r}
+CPS$Sex<-relevel(CPS$Sex,ref="Male") #Using male as our base for comparison
+Model.2<-lm(Wage.and.Salary~Years.of.Education+Sex,data=CPS)
+summary(Model.2)
+
+```
+
+Questions to answer:
+
+1. Does educational attainment matter? How much does it matter?
+
+2. Does sex matter? How much more do men earn, on average, compare to women?
+
+3. What is the goodness of fit of the model? 
+
+# Sex as a Dummy Variable
+
+While it may not seem obvious in the output above, sex is a "dummy variable." R chose male as the base level for comparison. This means that if a person is a male, he is coded as a "0". If a person is a female, she is coded as "1". 
+
+# Is Model 2 Significant? (Using the Overall F Test)
+
+When we are incorporating more than one predictor, we need to ask this question: "Are all the regression coefficients zero?" In another word, we are testing to see whether ANY predictor explain the variation in the target variable. To do so, we conduct the overall F-test.
+
+H0: There is no relationship between any of the predictor and the target variable. [B(1)=B(2)=0]
+
+H1: There is a relationship between at least one predictor and the target variable. (At least one B(j) IS NOT EQUAL to 0]
+
+Refer to your summary output above.
+
+# Model 3: Does Having Underage Child(ren) Matter?
+
+```{r}
+Model.3<-lm(Wage.and.Salary~Years.of.Education+Sex+Child.Under.18, data=CPS)
+summary(Model.3)
+```
+
+# Model 4: Maybe Having Underage Child(ren) Affect Men and Women Differently?
+
+We can gauge the differences using **interaction terms**. Sex * Child.Under.18 is an interaction term.
+
+```{r}
+Model.4<-lm(Wage.and.Salary~Years.of.Education+Sex+Child.Under.18+Sex:Child.Under.18, data=CPS)
+summary(Model.4)
+```
+
+# Model 5: Hey, What About Work Experience?
+
+```{r}
+Model.5<-lm(Wage.and.Salary~Years.of.Education+Sex+Child.Under.18+Sex:Child.Under.18+Years.of.Potential.Work.Experience, data=CPS)
+summary(Model.5)
+```
+
+# Model 6: What If the Relationship between Work Experience and Wage.and.Salary is not Linear?
+
+If the relationship between the predictor and target variables is not linear, then a simple solution is to use non-linear transformations of the predictors. We can square, cube, take the square root, or log of the predictor variable(s). 
+
+```{r}
+Model.6.a<-lm(Wage.and.Salary~Years.of.Education+Sex+Child.Under.18+Sex:Child.Under.18+Years.of.Potential.Work.Experience+I(Years.of.Potential.Work.Experience^2), data=CPS)
+summary(Model.6.a) #quadratic
+
+Model.6.b<-lm(Wage.and.Salary~Years.of.Education+Sex+Child.Under.18+Sex:Child.Under.18+poly(Years.of.Potential.Work.Experience,3),data=CPS)
+summary(Model.6.b)
+```
+
+# Model 7: Qualitative Variable as Predictor
+
+Take a look at Class.of.Worker variable. Individual belongs to one of the following classes:
+
+-Private Sector
+
+-Federal Government
+
+-State Government
+
+-Local Government
+
+-Self Employed, Incorporated Business
+
+-Self Employed, Not Incorporated Business
+
+We include a qualitative variable into a regression model by creating dummy variables.
+
+```{r}
+Model.7<-lm(Wage.and.Salary~Years.of.Education+Sex+Child.Under.18+Sex:Child.Under.18+Years.of.Potential.Work.Experience+Class.of.Worker, data=CPS)
+summary(Model.7)
+```
+
+Question: What is the "base" class of worker R chose for comparison purpose? 
+
+We can change the "base" class of worker for comparison purpose too!
+
+```{r}
+CPS$Class.of.Worker<-relevel(CPS$Class.of.Worker,ref="Private") #Using private as our base for comparison
+Model.7<-lm(Wage.and.Salary~Years.of.Education+Sex+Child.Under.18+Sex:Child.Under.18+Years.of.Potential.Work.Experience+Class.of.Worker, data=CPS)
+summary(Model.7)
+```
+
+# Model 8: Maybe All the Predictors Matter?
+
+```{r}
+Model.8<-lm(Wage.and.Salary~.,data=CPS)
+summary(Model.8)
+```
+
+Questions:
+
+1. Can you pick out the dummy variables?
+
+2. What predictors matter?
+
+3. What is the goodness of fit?
+
+# Model 9: All the Predictors and an Interaction Term
+
+```{r}
+Model.9<-lm(Wage.and.Salary~.+Sex:Child.Under.18,data=CPS)
+summary(Model.9)
+```
+
+# Which Model is "Better"? Comparing Two Models Using the Partial F-Test
+
+We want to know whether adding in this interaction term makes the "full model" statistically significantly different from the "reduced model" (i.e. no interaction term). We can answer this question via a partial F-test.
+
+H0: The full model is not statistically significant. We should use the reduced model.
+
+H1: The full model is statistically significant. We should use the full model.
+
+```{r}
+anova(Model.8,Model.9)
+```
+
+# A Problem with Multiple Linear Regression Model: Multicollinearity
+
+Collinearity occurs when two predictor variables are closely related to one another. That is, two predictors tend to increase or decrease together. Multicollinearity occurs when there is collinearity between three or more predictor variables. 
+Collinearity/multicollinearity makes it difficult to distinguish the individual effect of each predictor variable on the target variable. As a result, the accuracy of the estimated regression coefficients is reduced. Furthermore, the standard error of each estimated regression coefficient increases. Because the t-statistic is calculated by dividing the estimated regression coefficient by its estimated standard error, collinearity/multicollinearity reduces the t-statistic. As a result, we are more likely to fail to reject the null hypothesis (H0: Beta = 0). The power of the hypothesis test is reduced by the presence of collinearity/multicollinearity.
+
+One way to assess multicollinearity is to compute the variance inflation factor (VIF) for each predictor. 
+
+The smallest VIF is 1, which is equivalent to no multicollinearity. A VIF of 2 is equivalent to saying that you need a sample size twice as large as your current sample size to overcome the multicollinearity in the model. James et al. (2013) noted that some experts believe a VIF greater than 5 indicates serious multicollinearity (page 101). 
+
+```{r}
+vif(Model.9)
+```
+
+# Using Model.9 to Make Predictions
+
+Let's assume that we want to predict wage/salary for a person with the following characteristics.
+
+```{r}
+Person.1=data.frame(Years.of.Education=20,Years.of.Potential.Work.Experience=7,Class.of.Worker="Private",Census.Region="West North Central", Work.Status="Full-time", Industry.of.Work="Educational, Health, and Social Services",Child.Under.18="Yes",Sex="Female") 
+
+predict(Model.9,Person.1,interval="prediction")
+```
+
+# Logistic Regression: Or How Target Predicts Pregnant Customers
+
+Remember when we found out that Target was predicting which of its customers were pregnant? If you have not read Eric Siegel's "Predictive Analytics", then read this: 
+http://www.nytimes.com/2012/02/19/magazine/shopping-habits.html?_r=0
+
+So far, we have only looked at regression models where the target variable is continuous. Sometimes, we are interested in predicting a qualitative response. For example, whether a potential customer is likely to "be pregnant" or "not pregnant". This is a process known as classification. There are many classification models. Here we look at a regression approach to classification. This model is called a logistic regression. 
+
+We fit the logistic regression using maximum likelihood. The idea behind maximum likelihood is that we seek estimates for B's such that the predicted probability corresponds as closely as possible to the observed data. See here for more details:  
+
+https://en.wikipedia.org/wiki/Maximum_likelihood
+
+Also refer to Section 4.3.2 in **James et al.** (page 133).
+
+The dataset we discuss below is from Foreman, John W. (2014). **Data Smart: Using Data Science to Transform Information into Insight**. Indianapolis, IN: Wiley. ISBN: 978-1-118-66146-8. 
+
+```{r}
+setwd("C:/Users/corylowe/OneDrive/Code/R Practice Code/Applied Data Mining_Portfolio/Week 1")
+Target<-read.csv("Target_Pregnancy.csv")
+str(Target)
+```
+
+Here are the variables:
+
+Implied.Gender: Account holder is male/female/unknown 
+
+Home.Apt..PO.Box: Account holder address is home/apartment/PO box
+
+Pregnancy.Test: Recently purchased a pregnancy test
+
+Birth.Control: Recently purchased birth control
+
+Feminine.Hygiene: Recently purchased feminine hygiene products
+
+Folic.Acid: Recently purchased folic acid supplements
+
+Prenantal.Vitamins: Recently purchased prenatal vitamins
+
+Prenatal.Yoga: Recently purchased prenatal yoga DVD
+
+Body.Pillow: Recently purchased a body pillow
+
+Ginger.Ale: Recently purchased ginger ale
+
+Sea.Bands: Recently purchased Sea.Bands
+
+Stopped.buying.ciggies: Bought cigarettes regularly until recently, then stopped
+
+Cigarettes: Recently purchased cigarettes
+
+Smoking.Cessation: Recently purchased smoking cessation products (gums, patch, etc.)
+
+Stopped.buying.wine: Bought wine regularly until recently, then stopped
+
+Wine: Recently purchased wine
+
+Maternity.Clothes: Recently purchased maternity clothing
+
+
+Note: Variable descriptions are from page 208 in Foreman (2014).
+
+```{r}
+Target.Model <- glm(PREGNANT~., data=Target, family=binomial()) #Fit a logistic regression
+summary(Target.Model) 
+```
+
+Buying folic acid vitamins increases the log odds of being pregnant by 4.07. Who speaks in "log odds"?
+
+Let's change log odds into odd ratios.
+
+```{r}
+exp(cbind(Odds_Ratio=coef(Target.Model))) #Change log odds into odds ratios. 
+```
+
+Buying folic acid vitamins increases the odds of being pregnant by a factor of 59! 
+
+What are other good predictors of being pregnant?
+
+# Is the Logistic Regression Model Statistically Significant?
+
+To see whether the model is statistically significant, we can use anova(). Note below that we should see the residual deviance decreasing with each additional predictor being added to the null model. If the addition of a predictor does not decrease the residual deviance by much, we should consider excluding that predictor from our model. 
+
+```{r}
+anova(Target.Model,test="Chisq") 
+```
+
