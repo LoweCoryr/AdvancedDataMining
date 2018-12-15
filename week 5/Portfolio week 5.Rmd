@@ -1,0 +1,522 @@
+---
+title: "Week 5"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# R Packages
+
+The packages you will need to install for the week are **splitstackshape**, **lubridate**, **dplyr**, **rgl**.
+
+
+# Learning Goal for the Week
+
+In the past four weeks, we have examined unsupervised (cluster analysis; frequent pattern analysis) and supervised (linear regressions; decision trees) learning algorithms. In Week 5, we will take a "step back" and discuss the **bane of our existence as data scientists/analysts**: data preprocessing. 
+
+# Let's Talk Data Quality
+
+According to Han, Kamber, and Pei (2012), data quality consists of six elements:  
+
+* Accuracy
+* Completeness
+* Consistency
+* Timeliness
+* Believability
+* Interpretability
+
+Achieving a high level of data quality is the reason for data preprocessing.
+
+Link to a section from [Han, Kamber, and Pei](http://mercury.webster.edu/aleshunas/Support%20Materials/Data_preprocessing.pdf)
+
+# Three Tasks of Data Preprocessing  
+
+* Data Cleaning: fill in missing values; smoothing noisy data; identifying and removing outliers; and resolving inconsistencies.  
+* Data Transformation: normalization; discretization; and concept hierarchy generation.
+* Data Reduction: dimensionality and numerosity reduction.
+
+
+# Dataset 
+
+We are going to play with a dataset containing 5,000+ movies from IMDB. The dataset was scrapped, cleaned, and posted by [Chuan Sun](https://www.kaggle.com/deepmatrix/imdb-5000-movie-dataset) on Kaggle. 
+
+```{r}
+setwd("C:/Users/corylowe/OneDrive/Code/R Practice Code/Applied Data Mining_Portfolio/Week 5")
+movie<-read.csv("movie_metadata.csv")
+```
+
+# A Quick Data Cleaning Exercise
+
+```{r}
+str(movie)
+summary(movie)
+```
+
+## Plot Keywords
+
+Only the first five plot keywords are captured from the web scrapping exercise. Here's the full IMDB page for the movie [Avatar](http://www.imdb.com/title/tt0499549/?mode=desktop&ref_=m_ft_dsk).
+
+Let's find out what are the most commonly used words/phrases people use to describe movies.
+
+```{r}
+library(splitstackshape)
+library(Matrix)
+library(arules)
+library(dplyr)
+
+movie$plot_keywords<-as.character(movie$plot_keywords)
+
+movie_2<-cSplit(movie,"plot_keywords",sep="|")
+pk<-select(movie_2,c(28:32))
+
+keywords_basket<-paste(pk$plot_keywords_1,pk$plot_keywords_2,pk$plot_keywords_3,pk$plot_keywords_4,pk$plot_keywords_5, sep="\n")
+
+write(keywords_basket,file="keywords_basket") #write out as a text file
+
+kb<-read.transactions("keywords_basket", format="basket", sep=",") #cannot use the read.transactions function without writing out to an output file first.
+
+freq_kwb_df <-as.data.frame(itemFrequency(kb))
+
+itemFrequencyPlot(kb,topN=30,names=TRUE)
+
+```
+
+
+# Data Transformation
+
+## Discretization & Concept Hierarchies
+
+Discretization is the process of turning a numeric attribute into interval labels. The purpose of discretization is to reduce the number of unique values in the data mining process. This is particularly useful for large datasets.
+
+Concept hierarchies replace "lower level" raw data with "higher level" categories.
+
+```{r}
+movie_3<-movie
+names(movie_3)
+movie_num<-movie_3[,c(3,4,5,6,8,9,13,14,16,19,23,25,26,27,28)]
+hist(movie_num$duration)
+
+summary(movie_num$duration)
+quantile(movie_num$duration,prob = seq(0, 1, length = 6),na.rm=TRUE)
+```
+
+### Using Percentile Rank
+
+Let's create a factor variable for movie length (duration). 1 = shortest; 5 = longest.
+
+```{r}
+movie_num<-within(movie_num,quantile<-as.integer(cut(duration,quantile(movie_num$duration,prob = seq(0, 1, length = 6), na.rm=TRUE))))
+
+movie_num$quantile<-as.character(movie_num$quantile)
+
+movie_num$movie_length_per <-factor(movie_num$quantile,levels=c(1,2,3,4,5), labels=c("Bottom Quantile","Second Quantile","Third Quantile","Fourth Quantile","Highest Quantile"))
+```
+
+### Using Histogram
+
+Most movies are between 100 to 150 minutes.
+
+```{r}
+hist(movie_num$duration)
+
+movie_num$movie_length_hist<-
+  ifelse(movie_num$duration<=100,"Short",
+    ifelse (movie_num$duration<=150, "Average",
+      ifelse(movie_num$duration<=511, "Long",
+        ifelse(is.na(movie_num$duration), "NA"))))
+```
+
+### Using Cluster Analysis
+
+How many clusters? 4? 6?
+
+Remember that cluster analysis does not like missing values. You can either recode missing values to "0" or remove them. We will recode in this exercise.
+
+```{r}
+
+movie_num_2<-movie_num
+
+movie_num_2$duration<-ifelse(is.na(movie_num$duration),0,movie_num$duration) #recode
+
+hc_duration<-hclust(dist(movie_num_2$duration), method="complete") 
+
+plot(hc_duration)
+
+movie_length_clusters <- cutree(hc_duration, k=4) 
+
+movie_num_2$movie_length_group<-movie_length_clusters
+
+```
+
+Cleaning up the environment.
+
+```{r}
+movie_num_2<-NULL
+```
+
+Cleaning up the data frame.
+                                    
+```{r}
+movie_num$quantile<-NULL
+movie_num$movie_length_per<-NULL
+movie_num$movie_length_hist<-NULL
+```
+
+## Normalization
+
+Normalization is when numeric attribute is transformed to be on a smaller scale. Normalization is useful for data mining techniques that uses a distance measure (knn; cluster analysis).
+
+### Min-Max Normalization
+
+
+```{r}
+
+normalize<- function(x,na.rm=TRUE){(x-min(x,na.rm=TRUE))/(max(x,na.rm=TRUE)-min(x.na.rm=TRUE))}
+movie_num$budget_norm<-normalize(movie_num$budget)
+
+summary(movie_num$budget_norm) #Checking the range
+```
+
+
+### Z-Score Normalization (Or Mean Zero Normalization)
+
+
+```{r}
+movie_num$budget_z<-(movie_num$budget - mean(movie_num$budget,na.rm=TRUE))/sd(movie_num$budget,na.rm=TRUE)
+```
+
+  
+
+### Z Normalization with Mean Absolute Deviation (MAD)
+
+More robust to outliers.
+
+```{r}
+movie_num$budget_z_mad<-(movie_num$budget - mean(movie_num$budget,na.rm=TRUE))/mad(movie_num$budget,na.rm=TRUE)
+```
+
+
+### Decimal Scaling
+
+```{r}
+max_budget<-max(movie_num$budget, na.rm=TRUE)
+
+digits <- floor(log10( max_budget))+1
+
+print(digits)
+
+movie_num$budget_decimal<-(movie_num$budget)/(10^(digits))
+```
+
+Note: Digits code chunk above is from [here](http://stackoverflow.com/questions/6655754/finding-the-number-of-digits-of-an-integer)
+
+
+Let's clean up what we have done.  
+
+```{r}
+movie_num$budget_norm<-NULL
+movie_num$budget_z_mad<-NULL
+movie_num$budget_z<-NULL
+movie_num$budget_decimal<-NULL
+```
+
+# Data Reduction
+
+The purpose of data reduction is to "obtain a reduced representation of the data set that is much smaller in volume, yet closely maintains the integrity of the original data. That is, mining on the reduced data set should produce more efficient yet produce the same (or almost the same) analytical results" (Han & Kamber 2006, p. 73).
+
+We will discuss one way to achieve data reduction: Principal Component Analysis.
+
+## The Curse of Dimensionality
+
+The curse of dimensionality refers to the fact that algorithms that work in low dimensional space do not have the same performance in high dimensional space. 
+
+In a paper titled *A Few Useful Things to Know about Machine Learning*, Pedro Domingos [wrote](http://homes.cs.washington.edu/~pedrod/papers/cacm12.pdf):
+
+After overfitting, the biggest problem in machine learning is the curse of dimensionality....Generalizing correctly becomes exponentially harder as the dimensionality (number of features) of the xamples grows, because a fixed-size training set covers a dwindling fraction of the input space.
+
+...our intuitions, which come from a three-dimensional world, often do not apply in high-dimensional ones. In high dimensions, most of the mass of a multivariate Gaussian distribution is not near the mean, but in an increasingly distant "shell" around it; and most of the volume of a high-dimensional orange is in the skin, not in the pulp. If a constant number of examples is distributed uniformly in a a high-dimensional hypercube, beyond some dimensionality samples are closer to the face of the hypercube than to their nearest neighbor (p.4).
+
+An example may also make things a bit clearer. Keogh and Mueen (2010) [said](https://books.google.com/books?id=i8hQhp1a62UC&printsec=frontcover&dq=encyclopedia+of+machine+learning&hl=en&sa=X&ved=0ahUKEwiI1Pa986nQAhVE8IMKHYANBJoQ6AEIIDAA#v=onepage&q=encyclopedia%20of%20machine%20learning%20curse%20of%20dimensionality&f=false):  
+
+For example, 100 evenly-spaced sample points suffice to sample a unit interval with no more than 0.01 distance between points; an equivalent sampling of a 10-dimensional unit hypercube with a grid with a spacing of 0.01 between adjacent points would require 10^20 sample poits: thus, in some sense, the 10D hypercube can be said to be a factor of 10^18 "larger" than the unit interval (p.257).
+
+### What Can Go Wrong in Higher Dimensional Space?
+
+Keogh & Mueen (2010) and Domingos (2012) noted several problems:
+
+* Increase in dimensionality requires a large increase in observations to keep the same performance for machine learning algorithms.  
+
+* Notion of "distance" becomes meaningless. All neighbors become equidistant (=1) in high dimensional space.
+
+
+## Principal Component Analysis (PCA)
+
+PCA has many functions:  
+
+* Allows us to tackle the curse of dimensionality problem.  
+
+* Allows us to handle multicollinearity in regressions because we can use the principal components as "predictors."  
+
+* Visualize data in a lower dimensional space.
+
+### PCA: Intuitive Explanation
+
+An intuitive explanation for principal components is given in [Gareth et al 2013](http://www-bcf.usc.edu/~gareth/ISL/ISLR%20Sixth%20Printing.pdf):
+
+"Principal components are the dimensions that are closest to the n observations" (p.379)
+
+"The first principal component loading vector has a very special property: it is the line in p-dimensional space that is closest to the n observations (using average squared Euclidean distance as a measure of closeness" (p. 379)
+
+### PCA: Formal Definition
+
+The formal definition of principal components are as follows:
+
+The first principal component of a set of features X1, X2,...,Xp is the normalized linear combination of the features Z1 = a11*X1 + a2*X2 + ... + ap1*Xp  that has the largest variance. 
+
+a11, a21,...,ap1 are called the loadings of the principal component. These values equal to 1.
+
+The second principal component is the linear combination of X1,...,Xp that has maximal variance out of all linear combinations that are uncorrelated with Z1 (p.376). 
+
+In this exercise, we are going to take a 15-dimensional dataset and reducing it down to something smaller.
+
+The function prcomp does not like missing values. We will recode to 0. 
+
+```{r}
+movie_num[is.na(movie_num)]<-0 #3801 observations
+
+p <- prcomp(movie_num, scale=TRUE, center=TRUE)
+
+summary(p)
+```
+
+Looking at the loadings of the principal components.
+
+```{r}
+loadings<-p$rotation[,]
+#View(loadings)
+```
+
+
+Let's see if we can visualize our principal components.
+
+#### Bar Chart of Variance Explained by PCA
+
+```{r}
+p.variance.explained <-(p$sdev^2 / sum(p$sdev^2))*100
+print(p.variance.explained) 
+
+# plot percentage of variance explained for each principal component    
+barplot(p.variance.explained, las=2, xlab="", ylab="% Variance Explained", main="Principal Components versus Percent of Variance Explained")
+```
+
+
+# Shall We Cluster the Principal Components?
+
+```{r}
+
+hc_tree<-hclust(dist(p$x[,1:2]), method="complete") # 1:2 = based on 2 components
+plot(hc_tree)
+groups <- cutree(hc_tree, k=4) 
+
+movie$cluster<-groups #writing out the cluster assignment for each movie
+
+
+# k = number of groups
+```
+
+
+This function creates 2-dimensional scatter plot for 2 principal components & 3-dimensional scatter plot for 3 principal components. 
+
+The function is written by [Karolis Koncevicius](http://stackoverflow.com/questions/24282143/pca-multiplot-in-r).  
+
+
+```{r}
+library(rgl)
+plotPCA <- function(x, nGroup) {
+    n <- ncol(x) 
+    if(!(n %in% c(2,3))) { # check if 2d or 3d
+        stop("x must have either 2 or 3 columns")
+    }
+
+    fit <- hclust(dist(x), method="complete") # cluster
+    groups <- cutree(fit, k=nGroup)
+
+    if(n == 3) { # 3d plot
+        plot3d(x, col=groups, type="s", size=1, axes=F)
+        axes3d(edges=c("x--", "y--", "z"), lwd=3, axes.len=2, labels=TRUE)
+        grid3d("x")
+        grid3d("y")
+        grid3d("z")
+    } else { # 2d plot
+        maxes <- apply(abs(x), 2, max)
+        rangeX <- c(-maxes[1], maxes[1])
+        rangeY <- c(-maxes[2], maxes[2])
+        plot(x, col=groups, pch=19, xlab=colnames(x)[1], ylab=colnames(x)[2], xlim=rangeX, ylim=rangeY)
+        lines(c(0,0), rangeX*2)
+        lines(rangeY*2, c(0,0))
+    }
+}
+```
+
+```{r}
+plotPCA(p$x[,1:2],4) #2D
+#plotPCA(p$x[,1:3],4) #3D
+```
+
+# Some Interesting Characteristics about Movies
+
+```{r}
+table(movie$cluster)
+
+aggregate(data = movie, duration ~ cluster, mean)
+aggregate(data = movie, budget ~ cluster, mean)
+aggregate(data = movie, gross ~ cluster, mean)
+aggregate(data = movie, imdb_score ~ cluster, mean)
+```
+
+Cluster 1: **The Blockbusters**  
+
+Long movies (average 144 minutes); big budget (average $133 million); box office hits (average $280 million); highest IMDB score (average 7.8).
+
+Cluster 2: **Weekend Standard Fare**  
+
+Average length movies (average 106 minutes); mid-sized budget (average $38 million); weekend opening leaders (average $43 million); average IMDB score (average 6.4)
+
+Cluster 3: **I Wish I Didn't Waste My Time on That!**  
+
+Short movies (average 87 minutes); small budget (average $14 million); box office flops (average $33 million); terrible IMDB score (average 6.0)
+
+Cluster 4: **The Unicorn** 
+
+Average length movie (average 98 minutes); small budget (averge $26 million); box office hit ($84 million); high IMDB score (7.2)
+
+
+Let's see what these movies are.
+
+
+```{r}
+Cluster_1<-subset(movie,cluster==1)
+Cluster_2<-subset(movie,cluster==2)
+Cluster_3<-subset(movie,cluster==3)
+Cluster_4<-subset(movie,cluster==4)
+```
+
+
+# Another PCA Application
+
+We are going to replicate an exercise conducted by Hakkio and Willis (2013) of the Federal Reserve Bank of Kansas City. Hakkio and Willis created two measures of labor market conditions from 23 labor market variables. One measure tracks the level of activity of labor market conditions. The second measure tracks the rate of change.
+
+Here are some useful links:
+
+[LMCI](https://www.kansascityfed.org/research/indicatorsdata/lmci)  
+
+
+[Macro Bulletin](https://www.kansascityfed.org/publicat/research/macrobulletins/mb13Hakkio-Willis0718.pdf)
+
+
+In our exercise, we can only get access to 15 variables since the remaining ones are proprietary information. In any case, our goal is to take a dataset in 15 dimensions and reducing it down to 2 dimensions.
+
+First, we need to do some data wrangling.
+
+```{r}
+library(lubridate)
+LMCI_large<-read.csv("LMCI_month.csv")
+LMCI_small<-read.csv("LMCI_week.csv")
+
+#let's handle the LMCI_small dataset first.
+LMCI_small$date<-ymd(as.character(LMCI_small$DATE)) #we have to convert the DATE into "Date" format.
+LMCI_small$year<-year(LMCI_small$date)
+LMCI_small$month<-month(LMCI_small$date)
+LMCI_small.2<-as.data.frame(aggregate(ICSA~year+month, LMCI_small, mean))
+LMCI_small.3<-LMCI_small.2[order(LMCI_small.2$year,LMCI_small.2$month),]#sort by year and month
+
+#and now we deal with the LMCI_month dataset.
+LMCI_large$date<-ymd(as.character(LMCI_large$DATE))
+LMCI_large$year<-year(LMCI_large$date)
+LMCI_large$month<-month(LMCI_large$date)
+LMCI_large.2<-LMCI_large[order(LMCI_large$year,LMCI_large$month),]
+LMCI_large.3<-LMCI_large.2[,c(-1,-16)]
+
+#merging will cause us to lose one observation for ISCA since there is a value for the month of April 2016 but there are no values for this month for the other 14 variables.
+LMCI_combined<-merge(LMCI_small.3,LMCI_large.3, by=c("year", "month"))
+LMCI_combined<-LMCI_combined[,c(-1,-2)]
+```
+
+And now onto the PCA.
+```{r}
+
+LMCI_combined_zscore<-data.frame(scale(LMCI_combined))
+
+#Checking to see if z-score normalization works. We expect mean=0 and sd=1.
+sapply(LMCI_combined_zscore, mean)
+sapply(LMCI_combined_zscore, sd)
+
+LMCI_pca<-prcomp(na.omit(LMCI_combined_zscore), center=TRUE, scale=TRUE)
+summary(LMCI_pca)
+screeplot(LMCI_pca, type="lines") #note the first two PC account for 84% of the variance in the data.
+LMCI_pca$rotation[,1]
+#PC1 = 0.183*ICSA + 0.271*AHETPI + ...
+
+LMCI_pca$rotation[,2]
+#PC2 = 0.30*ICSA - 0.287*AHETPI + ...
+
+LMCI_pca.df<-data.frame(LMCI_pca$x[,1:2])
+
+plot(LMCI_pca.df$PC1, col="blue") #level of activity index?
+lines(LMCI_pca.df$PC2, col="red") #rate of change index?
+
+```
+
+In the above PCA example, we omitted the first 24 observations due to the NA's for the variable U6RATE. Omission means we have to deal with less data points, and, thus, less variation. What other data preprocessing techniques we could have used to handle the missing values?
+
+
+# Because We Love the Bakery Dataset
+
+Now think about taking a dataset that has 51 dimensions and reducing it down to two dimensions.
+
+```{r}
+library(cluster)
+library(fpc)
+
+bakery <- read.csv("bakery-binary.csv") 
+str(bakery)
+#View(bakery)
+
+#pca using raw data
+set.seed(12345)
+bakery_pca<-prcomp(bakery)
+summary(bakery_pca)
+screeplot(bakery_pca, type="lines")
+
+bakery_pca.df<-data.frame(bakery_pca$x[,1:6]) #first 6 PCs
+
+
+#Using the elbow method. Maybe 5 groups?
+set.seed(12345)
+wss <- (nrow(bakery_pca.df)-1)*sum(apply(bakery_pca.df,2,var))
+for (i in 2:10) wss[i] <- sum(kmeans(bakery_pca.df,
+                                     centers=i)$withinss)
+plot(1:10, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+
+```
+
+Clustering the first six PCAs to come up with cluster assignments.
+
+```{r}
+set.seed(12345)
+bakery_cluster_pca<-kmeans(bakery_pca.df, center=5)
+plotcluster(bakery, bakery_cluster_pca$cluster, main="K-Means on PC1 through PC6")
+```
+
+Now we take the cluster assignments and attach to the bakery dataset.
+
+```{r}
+bakery$cluster<-bakery_cluster_pca$cluster
+
+table(bakery$cluster)
+```
