@@ -1,0 +1,400 @@
+---
+title: "Week 3"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# R Packages
+
+The packages you will need to install for the week are **VIM**, **lessR**, **ggplot2**, **cluster**, **fpc**, **wbstats**, and **NbClust**. 
+
+
+# Cluster Analysis
+
+
+In the previous two weeks, we have looked at two supervised learning methods: regression and decision tree. For Week 3, we are going to examine our first unsupervised learning method: clustering. Unsupervised learning is 'unsupervised' because we do not have a target (outcome variable). 
+
+
+Clustering is meant to be used for "knowledge discovery" instead of "prediction." The basis of clustering is what sociologists call "homophily"-or birds of the same feather flock together. The goal of clustering is to find groups, or clusters, in a data set. We want to partition our dataset so that observations within each group are similar to each other while observations in different groups are different from each other. 
+
+
+There are many clustering algorithms, which are based on many different approaches of grouping data points. We will examine the two most common approaches in this class: 1) partitioning and 2) hierarchical. The partitioning approach divides the dataset into multiple partitions. The hierarchical approach disaggregates the dataset into a tree structure (similar to decision trees). We will look at two partitioning methods: k-means and k-medoids. We will talk about k-means in class and briefly discuss k-medoids. One of the tasks for this week's homework assignment is for you to research the k-medoids methods.   
+
+# Learning Goal for the Week
+
+What interesting things can we learn from online postings of 30,000 teenagers on a social media site? (Notice that we have no target/outcome variable. We am simply looking for interesting patterns.) 
+
+# The Dataset
+
+We will use the Teen Market Segmentation dataset from Chapter 9 in the Lantz textbook. According to Lantz, the dataset is a random sample of 30,000 U.S. high school students who had profiles on a social networking service (SNS) in 2006. The full text of the SNS profiles were downloaded. Each teen's gender, age, and number of SNS friends were recorded. From the top 500 words that appeared across all SNS profiles, a smaller list of 36 words were chosen to represent five categories of interest: extracurricular activities, fashion, religion, romance, and antisocial behavior (Lantz 2013, p. 279).
+
+# Getting Started
+
+```{r}
+setwd("C:/Users/corylowe/OneDrive/Code/R Practice Code/Applied Data Mining_Portfolio/Week 3")
+
+teens<-read.csv("snsdata.csv", header=TRUE, sep=",")
+
+str(teens)
+```
+
+# Exploratory Data Analysis
+
+```{r}
+summary(teens)
+```
+
+## Problematic Data Values
+
+```{r}
+library (ggplot2)
+
+ggplot(data=teens) + geom_histogram(aes(x=age), fill="green", color="black")
+
+ggplot(data=teens) + geom_bar(aes(x=gender), fill="blue", color="black")
+```
+
+The age variable has a very large range. Minimum age is 3.086. Maximum age is 106.927. There are also 5,086 missing values.
+
+The gender variable has 2,724 missing values. We should also note the gender distribution: 22,054 females and 5,222 males. 
+
+
+Let's see the percentage of missing values for our variables:
+
+```{r}
+pMiss <- function(x){sum(is.na(x))/length(x)*100}
+apply(teens,2,pMiss)
+```
+
+Let's visualize what we just found above:
+```{r}
+library(VIM)
+aggr_plot <- aggr(teens, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, labels=names(teens), cex.axis=.7, gap=3, ylab=c("Histogram of missing data","Pattern"))
+```
+
+Source: The two code chunks above are from [this](https://www.r-bloggers.com/imputing-missing-data-with-r-mice-package/) entry from Rblogger.
+
+
+16% of data values for age is missing. 9% of data values for gender is missing. If we compound the fact that some people did not report their true age, this variable is our "bigger" problem. Let's tackle it first.
+
+
+## One Proble at a Time: Recoding Age via Imputation
+
+First, we need to make an assumption: **Teenagers are between the age of 13 and 20.**
+Anyone who does not have a reported age in this assumed range will be recoded as "NA."
+
+```{r}
+teens$age <- ifelse(teens$age >= 13 & teens$age < 20,
+                     teens$age, NA)
+```
+
+To handle the missing age values, we will use imputation. It is common to impute missing values with expected values (i.e. what we expect those values to be). Mean and median imputations are common techniques. If the distribution is normal, we use mean imputation. If the distribution is skewed, we use median imputation.
+
+We will use a package called lessR to draw a histogram of the age and then superimposes a normal curve on top for comparison purpose.
+```{r}
+library(lessR)
+Density(age, data=teens)
+```
+
+The distribution looks normal. Let's proceed with mean imputation.
+
+```{r}
+# Finding the mean age by cohort
+
+mean(teens$age) # Doesn't work b/c of NA
+mean(teens$age, na.rm = TRUE) #This tells R to ignore NA in calculating the mean.
+
+# Review age by cohort
+aggregate(data = teens, age ~ gradyear, mean, na.rm = TRUE) 
+
+# Calculating the expected age for each person
+# This creates a new variable called ave_age
+ave_age <- ave(teens$age, teens$gradyear,
+                 FUN = function(x) mean(x, na.rm = TRUE)) 
+
+#print(ave_age) #To view average age table created above.
+
+
+teens$age <- ifelse(is.na(teens$age), ave_age, teens$age) 
+#Removes the missing values and replaces with mean age.
+
+# Check to make sure missing values are eliminated
+summary(teens$age)
+```
+
+## Second Problem: Missing Gender Values
+
+We have three possible levels: female, male, and NA (no reported gender). We will create two dummy variables to handle the gender missing values: 1) female and 2) no_gender.
+
+```{r}
+teens$female <- ifelse(teens$gender == "F" &
+                         !is.na(teens$gender), 1, 0) 
+#If female & not missing gender value = 1
+#Else = 0 (this includes male & missing values)
+
+teens$no_gender <- ifelse(is.na(teens$gender), 1, 0) 
+#If gender is unknown then no_gender = 1. This is how we extract out the "missing values" versus "male" from the previous dummy variable.
+
+# Check our recoding work
+table(teens$gender, useNA = "ifany") #We have 2,724 cases of unknown gender.
+table(teens$female, useNA = "ifany") 
+table(teens$no_gender, useNA = "ifany") #We have 2,724 cases of unknown gender. This matches up with our count in the gender variable.
+```
+
+# What Do We Want to Examine?
+
+We want to cluster what these 30,000 teenagers talked about on their SNS profiles with regards to the five categories of interests: extracurricular activities, fashion, religion, romance, and antisocial behavior. 
+
+```{r}
+interests <- teens[5:40] #Take the 5th through the 40th variables into the model.
+```
+
+# Let's Talk Cluster Analysis
+
+## Partitioning Approach
+
+General process:
+
+1. Choose the number of clusters (k)
+
+2. Partition the dataset into k clusters so that the sum of squared distances is minimized between the data points (p) and some center point [c(i)] in each cluster. 
+
+
+Two questions naturally arise from above:
+
+**Question 1**: How do we determine the center points?
+
+**Answer**: We select a clustering algorithm. We will examine k-means and k-medoids.
+
+**Question 2**: How do you measure the distance between the data points and center points?
+
+**Answer**: We use either Euclidean (straight line) or Manhattan distance (city block). 
+
+
+## K-Means Clustering
+
+We will begin by building a cluster model with five clusters. There's no right place to start. Just pick a k value that you think is most suitable and start.
+
+Remember that in k-means, the starting centroids are randomly chosen.
+
+**nstart** is the number of times the starting points are re-sampled. Think of it this way: R does clustering assignment for each data point 25 times and picks the center that have the lowest within cluster variation. The "best" centroids become the starting point by which kmeans will continue to iterate. Typically you can set nstart to between 20 and 25 to find the best overall random start. See Morissette & Chartier (2013) [paper](http://www.tqmp.org/Content/vol09-1/p015/p015.pdf) for explanations of the different kmeans algorithms. We recommen reviewing Table 5 in the paper for additional information on the various kmeans algorithm.
+
+**iter.max** = maximum number of iterations before stopping (unless convergence is already achieved before max iterations).
+
+**The default algorithm is Hartigan-Wong, which minimizes the within-cluster sum of squares.**
+
+```{r}
+set.seed(123)
+teen_clusters_5 <- kmeans(interests, centers=5) 
+```
+
+Let's see what are the outputs from kmeans:
+
+```{r}
+names(teen_clusters_5) 
+```
+
+Size: Number of people in each cluster. Cluster 3 has the most number of people. Follows by Clusters 5 & 1.
+
+```{r}
+teen_clusters_5$size
+```
+
+
+Let's see each row and its assigned cluster.
+
+```{r}
+teen_clusters_5$cluster
+```
+
+Let's show the coordinates of the cluster centroids for the interest variables.
+
+```{r}
+teen_clusters_5$centers 
+t(teen_clusters_5$centers) #transpose for ease of reading purpose
+```
+
+### Visualizing the Clusters
+
+```{r}
+library(fpc) #load this
+
+plotcluster(interests, teen_clusters_5$cluster, main="k = 5") #creates a visualization of the K=5 cluster. Are there distinct groups?
+
+#If all your data ends up in a corner and hard to read- change the lim for y and x:
+#sometime you need to run it first with out the lims and then add them in and run again.
+plotcluster(interests, teen_clusters_5$cluster, main="k=5", xlim=c(-20,5), ylim=c(-20,10))
+```
+
+The plot you see here is two dimensional whereas your dataset has 36 dimensions (because of the 36 "interest" variables). In another word, it is a simplified version. The coordinates on the x and y axes are called "usual discriminant coordinates." Here's more on the topic: [see here](http://stats.stackexchange.com/questions/51707/reading-kmeans-data-and-chart-from-r) and [see here](http://finzi.psych.upenn.edu/library/fpc/html/plotcluster.html)
+
+
+### What about k=4?
+
+```{r}
+set.seed(123)
+teen_clusters_4 <- kmeans(interests, centers=4) 
+plotcluster(interests, teen_clusters_4$cluster, main="k=4") 
+```
+
+### What about k=3?
+
+```{r}
+set.seed(123)
+teen_clusters_3 <- kmeans(interests, centers=3)
+plotcluster(interests, teen_clusters_3$cluster, main="k=3")
+```
+
+### Picking Among the K's
+
+#### A Digression on Sum of Squares 
+
+##### Within Sum of Squares (withinss)
+
+We want our clusters to be "unique." In another word, we want the sum of squares within each cluster to be small because it means the cluster is cohesive. As we stated earlier, the default algorithm in kmeans is Hartigan & Wong, which minimizes the withinss. What are the withinss for each cluster? Look at Clusters 3, 5, and 1 in particular. Which cluster has the largest withinss?
+```{r}
+teen_clusters_5$withinss
+```
+
+##### Between Sum of Squares (betweenss)
+
+We want each cluster to be different from its neighboring clusters. The betweenss is the most useful when we want to compare among multiple kmeans models.
+
+```{r}
+teen_clusters_5$betweenss
+```
+
+##### Total Sum of Squares (totss)
+
+totss = betweenss + withinss
+
+```{r}
+teen_clusters_5$totss
+```
+
+#### Method 1: Use the visualizations 
+
+Look at your cluster plots. Can you make a determination this way?
+
+#### Method 2: Examine the betweenss and withinss ratios!
+
+We want the clusters to demonstrate both cohesion and separation. Cohesion is measured by minimizing the ratio of withinss/totalss. Separation is measured by maximizing the ratio of betweenss/totalss.
+
+**Cluster Separation**
+
+```{r}
+clusters3<- teen_clusters_3$betweenss/teen_clusters_3$totss
+clusters4<- teen_clusters_4$betweenss/teen_clusters_4$totss
+clusters5<- teen_clusters_5$betweenss/teen_clusters_5$totss
+
+betweenss.metric <- c(clusters3, clusters4, clusters5)
+print(betweenss.metric) #Look for a ratio that is closer to 1.
+```
+k=5 has the most separation.
+
+
+**Cluster Cohesion**
+
+```{r}
+clusters3<- teen_clusters_3$tot.withinss/teen_clusters_3$totss
+clusters4<- teen_clusters_4$tot.withinss/teen_clusters_4$totss
+clusters5<- teen_clusters_5$tot.withinss/teen_clusters_5$totss
+
+totwithinss.metric <- c(clusters3, clusters4, clusters5)
+print(totwithinss.metric) #Looking for a ratio that is closer to 0. 
+
+```
+k=5 also has the most cluster cohesion.
+
+
+#### Method 3: Using the "Elbow Method"
+```{r}
+wss <- (nrow(interests)-1)*sum(apply(interests,2,var))
+for (i in 2:10) wss[i] <- sum(kmeans(interests,
+                                     centers=i)$withinss)
+plot(1:10, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+```
+
+Source: The above code chunk is from [here](http://stackoverflow.com/questions/15376075/cluster-analysis-in-r-determine-the-optimal-number-of-clusters)
+
+
+#### Method 4: Use Your Business Knowledge!
+
+What is actionable? What is not? what do you know about your customers? Your data?
+
+#### A Side Note: Trying an Automatic Pick
+
+```{r}
+#library(fpc) #Requires this
+#teen_clusters_optimal<-kmeansruns(interests, krange=2:10) #finds the "best"" K between 2 and 10
+#teen_clusters_optimal$bestk 
+```
+
+
+### Creating an Aggregate Profile for Our Clusters
+
+To create "meaning" for our clusters, we need to give each cluster an "identity."
+
+```{r}
+teen_clusters_5$size #Get the size of each cluster
+
+Clusters_5<-data.frame(teen_clusters_5$centers) #Put the cluster centroids into a data frame
+Clusters_5<-data.frame(t(teen_clusters_5$centers)) #Transpose for easier reading
+```
+
+We can sort the centroids for each cluster to see what the teens were writing on their profiles.
+
+```{r}
+Clusters_5[order(-Clusters_5$X1), ] 
+Clusters_5[order(-Clusters_5$X2), ]
+Clusters_5[order(-Clusters_5$X3), ]
+Clusters_5[order(-Clusters_5$X4), ]
+Clusters_5[order(-Clusters_5$X5), ]
+```
+
+**Cluster 1** (4,216 teens): music, band. Other words with smaller centroids: rock, god, dance, hair, shopping, cute, football, church.
+
+Are these the "band kids"?
+
+**Cluster 2** (1,538 teens): dance, god. Other words with smaller centroids: music, church, jesus, hair, shopping, cute, die, band.
+
+Are these the "religious/church" kids?
+
+**Cluster 3** (18,973 teens): All very low centroid values: music, god, shopping, dance, cute, football, hair, rock, mall, basketball
+
+Who are these "kids"? The "basket cases"?
+
+
+**Cluster 4** (773 teens): hair, sex, music, kissed, rock, blonde. Other words with smaller centroids: dance, die, cute, god
+
+Are these "princesses"?
+
+
+**Cluster 5** (4,500 teens): Moderate centroid values: hair, shopping, cute, soccer, basketball, mall, music, church, football, softball
+
+Who are these "kids"? Another "basket cases"?
+
+
+Let's add back the demographic information.
+
+```{r}
+# apply the cluster IDs to the original data frame
+teens$cluster <- teen_clusters_5$cluster #adds the cluster number to each recond
+
+# mean age by cluster
+aggregate(data = teens, age ~ cluster, mean)
+
+# proportion of females by cluster
+aggregate(data = teens, female ~ cluster, mean)
+
+# mean number of friends by cluster
+aggregate(data = teens, friends ~ cluster, mean)
+
+```
+
+## K-Medoid Clustering
+
+The problem with k-means is that it is sensitive to outliers. A workaround to this issue is k-medoids clustering. Instead of finding centroids, we find medoids. What is a medoid? Medoid is just basically the most "central" data point in a cluster. Instead of finding the mean point in a cluster, we just choose one of the existing data points in each cluster to make it the "center." 
+
