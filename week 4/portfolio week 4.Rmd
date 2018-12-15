@@ -1,0 +1,500 @@
+---
+title: "Week 4"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# R Packages
+
+The packages you will need to install for the week are **Matrix**, **arules** and **arulesViz**.
+
+
+# Strawberry Pop-tarts During Hurricanes
+
+If you read *Big Data* by Schonberger-Mayer and Cukier, then you are familiar with the Walmart story about stocking stores with strawberry pop-tarts during hurricanes. If not, here is the original [story](http://www.nytimes.com/2004/11/14/business/yourmoney/what-walmart-knows-about-customers-habits.html). We would expect that people buy sandbags, flashlights, and other similar items to prepare for hurricanes. Walmart figured out that people buy strawberry pop-tarts too!
+
+Let's not forget the Target story about predicting pregnant customers. Target arrived at their answers by examining what known pregnant customers were buying throughout their pregnancies. The company then extrapolated the information onto other customers with unconfirmed pregnancy status. 
+
+Our task for this evening is in the similar vein. We will be looking at datasets to see if we can find regularities in them.
+
+
+# Frequent Pattern Analysis (Association Rule Mining)
+
+We introduced unsupervised learning last week via cluster analysis. In particular, we examined k-means, k-medoids, and hierarchical clustering. We will examine another unsupervised learning method this week called **frequent pattern analysis (FPA)**.
+
+Applications of FPA include analyses of market basket, DNA sequence, click stream analysis, and marketing activities (sale campaign; cross-marketing; etc.). We are going to examine two FPA algorithms: **Apriori** and **ECLAT**. **Apriori** is the more popular algorithm, but it can take up a lot of computational resources. **ECLAT** is a more efficient algorithm (i.e. faster) on smaller datasets.   
+
+# Learning Goal for the Week
+
+What interesting rules can we discover from 9,835 transactions containing 169 grocery products? 
+
+# The Dataset
+
+The *Groceries* dataset contains 9,835 transactions of 169 aggregated categories at a grocery store. The data was collected over a one month period. 
+
+Source of dataset:
+
+Michael  Hahsler,  Kurt  Hornik,  and  Thomas  Reutterer  (2006)  Implications  of  probabilistic  data modeling for mining association rules.  In M. Spiliopoulou, R. Kruse, C. Borgelt, A. Nuernberger, and W. Gaul, editors, From Data and Information Analysis to Knowledge Engineering, Studies in Classification, Data Analysis, and Knowledge Organization, pages 598-605. Springer-Verlag.
+
+
+# Basic Concepts
+
+Assume we have the following transaction database.
+
+
+An **itemset** is a list containing one or more items from the dataset. 
+
+Here are all the possible 1-itemset from the database above:
+
+1-itemset: {beer},{nuts},{diaper},{coffee},{eggs},{milk}
+
+Here are all the possible 2-itemsets from the database above:
+
+2-itemset: {beer, nuts}; {beer, diaper}; {beer, coffee}; {beer, eggs}; {beer, milk}; {nuts, diaper}; {nuts, coffee}; {nuts, eggs}; {nuts, milk}; {diaper, coffee}; {diapers, eggs}; {diapers, milk}; {coffee, eggs}; {coffee, milk}; {eggs, milk}
+
+3-itemset and 4-itemset are created in similar fashions. 
+
+**Absolute Support** is the count of occurrences of itemset X. For example, the absolute support for the 2-itemset {beer, diaper} is 3. The absolute support for the 2-itemset {eggs, milk} is 2.
+
+**Relative Support** is the fraction of transactions that contain itemset X. For example, the relative support for the 2-itemset {beer, diaper} is 0.6
+
+```
+Relative Support = Count(X)/N = 3/5 = 0.6
+
+```
+
+An itemset is said to be **frequent** if its support >= minimum support threshold (minsup). The minsup value is set by the user and should reflect business knowledge.
+
+
+FPA results in a set of association rules. A typical association rule would state that given itemset X, then itemset Y is likely to occur. For example, {diaper} -> {beer}. Customers who purchase diapers are likely to purchase beer. 
+
+
+Association rules are determined based on two quality measures: **support** and **confidence**.
+
+```
+Support: How often does the rule happen?
+```
+Agrawal, Imielinski, and Swami (1993) noted that support is equivalent to the concept of "statistical significance." The calculation is already discussed above.
+
+```
+Confidence: How often is the rule correct? 
+```
+
+Agrawal, Imielinski, and Swami (1993) said confidence is the "rule's strength." 
+
+Confidence is calculated as follows:
+
+```
+confidence(X->Y)=(support(X,Y))/(support(X))
+```
+
+The user sets the **minimum support (minsup)** and **minimum confidence (minconf)** thresholds. **Rule interestingness** is determined by the minsup and minconf. Applied algorithms only report association rules that meet or exceed the minsup and minconf thresholds. 
+
+For example, let's say we set the minsup = 50% and minconf=50%
+
+Here are two association rules that are "interesting." 
+
+```
+{diaper}->{beer}
+
+support(diaper,beer)=(count(diaper,beer))/N=3/5=0.6
+
+confidence(diaper,beer)=(support(diaper,beer))/(support(diaper))=3/4=0.75
+
+We report this rule as follows: diapers->beer (60%, 75%)
+```
+
+
+```
+{beer}->{diaper} 
+
+support(beer,diaper)=(count(beer,diaper))/N=3/5=0.6
+
+confidence(beer,diaper)=support(beer,diaper)/support(3) =3/3=1.0
+
+We report this rule as follows: beer -> diapers (60%, 100%)
+```
+
+# How Do FPA Algorithms Work?
+
+FPA algorithms utilize a search tree to generate frequent itemsets. A search tree starts with an empty itemset in its initialization. Using the minsup threshold established by the user, a set of candidate itemsets are generated. Support for each candidate itemset is then generated. If a search tree tries to generate all possible candidate itemsets, the process would be very computationally intensive for large datasets. As a result, most FPA algorithms utilize the **downward closure property**. Downward closure states that a supersede itemset cannot be frequent if its subset itemsets are not frequent. Consequently, most FPA algorithms will only generate candidates and count support for those itemsets that meet the downward closure property. 
+
+Below is an illustration of the search tree that applies the downward closure property. We assume here that the minsup = 50%. Notice that no 3-itemset candidates are generated because only one 2-itemset {beer, diapers} is frequent. 
+
+
+# Getting Started
+
+The original data frame has 9,835 transactions with 169 grocery products. This translates into a sparse matrix with 9,835 rows and 169 columns.
+
+```{r}
+library(Matrix)
+library(arules)
+setwd("C:/Users/corylowe/OneDrive/Code/R Practice Code/Applied Data Mining_Portfolio/Week 4")
+groceries <- read.transactions("groceries.csv", sep = ",") #9,835 transactions with 169 products.
+```
+
+Let's visualize the sparse matrix. You cannot make much sense of this picture.
+
+```{r}
+image(groceries) 
+```
+
+Let's narrow it down to the first five transactions.
+
+```{r}
+image(groceries[1:5])
+```
+
+Another visualization. This time of a random sample of 100 transactions.
+
+```{r}
+image(sample(groceries, 100))
+```
+
+Can we quickly summarize the sparse matrix? Yes!
+
+```{r}
+summary(groceries)
+```
+
+Density indicates that only 2% of the elements are non-zero.
+
+Mean is the average items per transaction.
+
+Sum of "most frequent items" = total number of items bought in grocery dataset
+
+Element is the frequency of a given number of items (i.e. 1, 2, 3, 4, etc.) bought in the transactions.
+
+Here is another useful function that allows you to examine individual transactions.
+
+```{r}
+inspect(groceries[1:5]) 
+```
+
+# Examining 1-itemset
+
+Let's count the **support** (or frequency) of the grocery items. We will put the support in a data frame so we can view them.
+
+```{r}
+freq_groceries_data_frame <- as.data.frame(itemFrequency(groceries))
+#View(freq_groceries_data_frame)
+```
+
+Let's pare this list down a bit to look at the first 15 items.
+
+```{r}
+itemFrequency(groceries[, 1:15])
+```
+
+Plotting the support.
+
+```{r}
+itemFrequencyPlot(groceries) 
+```
+
+Too much information! Let's impose a rule. Minsup = 10%
+
+```{r}
+itemFrequencyPlot(groceries, support = 0.1)
+```
+
+Here is a different take. Let's say we want to look at the "top 20" items.
+
+```{r}
+itemFrequencyPlot(groceries, topN = 20) 
+```
+
+
+# Apriori Algorithm
+
+The most frequently used FPA algorithm is Apriori. 
+
+Pro: scalable for large datasets.
+
+Con: computationally intensive. We have to keep comparing the candidate itemsets against the database until no frequent and/or candidate itemsets can be generated. 
+
+
+**Data format requirement**: Horizontal. One column has the tidset number (tid= transaction ID). Another column has a list of items.
+
+**Method**
+
+1. Initialize by scanning the database once to get frequent 1-itemset
+2. Generate length (k+1) candidate itemsets from length k frequent itemsets
+3. Test the candidate itemsets against the database. Prune candidate itemsets based on the minimum support threshold (minsup).
+4. Terminate when no frequent or candidate set can be generated.
+
+## Exploring apriori() in arules Package
+
+```{r}
+#?apriori
+```
+
+### Default parameter settings
+
+support = 0.1 (or 10%)
+confidence = 0.8 (or 80%)
+maxlen = maximum number of items in a rule. Default is 10.
+minlen = minimum number of items in a rule. Default is 1.
+
+
+Let's try the default parameter settings first.
+
+```{r}
+apriori(groceries)
+```
+
+Not a single rule found! Let's try again with some tweakings to the parameter settings.
+
+```{r} 
+groceryrules <- apriori(groceries, parameter = list(support =
+                          0.001, confidence = 0.5, minlen = 2)) 
+```
+
+Let's count the number of rules found
+
+```{r}
+print(groceryrules) 
+```
+
+## Evaluating Performance
+
+Let's look at the number of rules and number of items per rule.
+
+```{r}
+summary(groceryrules)
+```
+
+Let's see what we found:
+
+2-itemset: 2 rules
+
+3-itemset: 1,461 rules
+
+4-itemset: 3,211 rules
+
+5-itemset: 939 rules
+
+6-itemset: 46 rules
+
+Total = 5,668 rules. Whew!
+
+
+Let's look at the first 10 rules. Please note the rules are not listed in the order of importance.
+
+```{r}
+inspect(groceryrules[1:10]) 
+```
+
+### Let's Talk About "Lift"!
+
+In the context of our current analysis, lift measures "how much more likely an item is to be purchased relative to its typical purchase rate, given that you know another item has been purchased" (Lantz 2013, p. 261).
+
+For example:
+
+```
+Lift (honey --> whole milk) = Confidence (honey --> whole milk)/Support (whole milk)
+
+Confidence (honey --> whole milk) = 0.7333
+
+Support (whole milk) = 0.2556. 
+
+Lift = 0.4108/0.2556 = 2.87
+```
+
+## Improving Performance
+
+Let's sort the rules by lift.
+
+```{r}
+groceryrules_sorted <- sort(groceryrules, by = "lift")
+#inspect(groceryrules_sorted)
+```
+
+And now by lift and confidence.
+
+```{r}
+groceryrules_sorted <-sort(groceryrules, by = c("lift", "confidence"))
+#inspect(groceryrules_sorted)
+```
+
+### Strong Rules. Actionable Rules.
+
+A **strong** rule has both high support and confidence.
+
+An **actionable** rule is one you can act on. Remember that there are always more trivial rules than non-trivial, actionable rules.
+
+### An Example: It is Soup Season!
+
+Here we are looking at the subsets of rules containing "soups" items. Winter is approaching, and we know people buy soup during colder months. What else are they buying with soup?
+
+```{r}
+soups_rules <- subset(groceryrules_sorted, items %in% "soups")
+#inspect(soups_rules)
+```
+
+
+Let's write the rules out to a CSV file.
+
+```{r}
+write(groceryrules_sorted, file = "groceryrules.csv",
+      sep = ",", quote = TRUE, row.names = FALSE)
+```
+
+Looking at the rules in a data frame.
+
+```{r}
+groceryrules_df <- as(groceryrules_sorted, "data.frame")
+#View(groceryrules_df)
+```
+
+# Using arulesViz Package to Visualize the "Mined" Rules
+
+## Scatterplot
+
+```{r}
+library(arulesViz)
+plot(groceryrules)
+```
+
+##A two-key plot
+
+Looking at the k-itemset rules by different coding colors.
+
+```{r}
+plot(groceryrules, shading="order", control=list(main="Two-key plot"))
+```
+
+## Grouped Matrix Plot
+
+The rules are grouped using k-means clustering. Default quality measure is lift. Default plot shows 20 rules for the antecedents (LHS or left hand side).
+
+```{r}
+plot(groceryrules, method="grouped")
+```
+
+Let's try 30 rules in LHS
+
+```{r}
+plot(groceryrules, method="grouped", control=list(k=30)) 
+```
+
+## Graph Based Visualizations
+
+This technique only works well for a small number of rules. We will create a graph for the first ten rules. Please note that we are using the sorted grocery rules vector. The default setting will give items and their relationships to each other.
+
+```{r}
+plot(groceryrules_sorted[1:10], method="graph")
+```
+
+This is another graph type using the itemsets instead.
+
+```{r}
+plot(groceryrules_sorted[1:10], method="graph", control=list(type="itemsets"))
+```
+
+
+## Mining Rules Interactively
+
+The features are clunky but still useable. Click "end" to leave interactive mode.
+
+```{r}
+#plot(groceryrules, interactive=TRUE)
+#plot(groceryrules, method="grouped", interactive=TRUE)
+```
+
+
+# ECLAT Algorithm
+
+Pro: Not as computationally intensive as Apriori
+
+Con: Works best on smaller datasets
+
+Required data format: Vertical
+
+
+Support of a 1-itemset is the size of its tidset. Support of k-itemset is the intersection of the tidsets of the corresponding itemsets. For example, the support for {beer, diapers} is counted by matching up the tidsets of beer and diapers. 
+
+We can see that as the size of the transaction database increases, it is more advantageous to count the tidsets than to pass through the databases multiple times like in Apriori.
+
+Method
+
+1. Generate 1-itemset candidate and count support at the same time
+2. Prune candidates based on minsup threshold
+3. Repeat Steps 1 & 2 until no more candidates can be generated or no frequent itemset is found
+
+## Grocery Shopping in Belgium
+
+We will use a dataset containing 88,162 grocery receipts from an anonymous Belgian supermarket. The receipts contained 16,470 SKUs. The data was collected between 1999 and 2000. More information about this dataset is available from [here](http://www.cs.rpi.edu/~zaki/Workshops/FIMI/data/retail.pdf).
+
+Source of dataset:
+
+Brijs T., Swinnen G., Vanhoof K., and Wets G. (1999), The use of association rules for product assortment decisions: a case study, in: Proceedings of the Fifth International Conference on Knowledge Discovery and Data Mining, San Diego (USA), August 15-18, pp.  254-260. ISBN: 1-58113-143-7.
+
+
+We will download the dataset into R using a hyperlink. 
+
+```{r}
+retail <- read.transactions(file="http://fimi.ua.ac.be/data/retail.dat", sep = " ") 
+
+summary(retail)
+```
+
+Some questions for us to answer:
+
+1. How many items does a typical receipt contain?  
+
+2. Which SKUs appear most frequently?
+
+3. What's the density of the sparse matrix? 
+
+
+```{r}
+freq_retail <- as.data.frame(itemFrequency(retail))
+#View(freq_groceries_data_frame)
+```
+
+Sort the data frame above and find the support for the most popular SKUs. 
+
+Default parameter settings for ECLAT: supp = 0.1 and maxlen = 5
+
+What support and maxlen should we use? Many SKUs have support around 0.01. The mean number of items in receipt is 10.
+
+```{r}
+retail.rules<-eclat(retail, parameter=list(supp=0.01, maxlen=10))
+print(retail.rules)
+```
+
+159 rules found! Let's dig in deeper. We can use inspect() to view all the rules.
+
+```{r}
+inspect(retail.rules)
+```
+
+Alternatively, we can use ruleInduction() and set the confidence level to filter the rules. The default confidence=0.8
+
+```{r}
+retail.rules.review<-ruleInduction(retail.rules,retail)
+retail.rules.sorted<-sort(retail.rules.review, by = c("lift", "confidence"))
+inspect(retail.rules.sorted)
+```
+
+# Classifying Documents
+
+The Epub dataset is available in the arules package. According to the arules manual documentation, it states, "The Epub dataset contains the download history of documents from the electronic platform of the Vienna University of Economics and Business Administration. The data was recorded between Jan 2003 and Dec 2008....There are 15,729 transactions and 936 items. The item labels are document IDs" (Hahsler 2016, p. 27). The dataset was donated by Michael Hahsler from [ePub-WU](http://epub.wu-wien.ac.at). Link to the arules [documentation](https://cran.r-project.org/web/packages/arules/arules.pdf)
+
+```{r}
+data("Epub")
+
+image(Epub[1:1000])
+
+freq_Epub <- as.data.frame(itemFrequency(Epub))
+
+Epub.rules<-eclat(Epub,parameter=list(supp=0.001))
+
+summary(Epub.rules)
+
+print(Epub.rules)
+
+#inspect(Epub.rules[1:100])
+```
