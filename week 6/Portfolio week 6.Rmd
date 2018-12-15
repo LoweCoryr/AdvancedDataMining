@@ -1,0 +1,400 @@
+---
+title: "Week 6"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# R Packages 
+
+caret, RandomForest, mlbench, adabag, ROCR, and doSNOW.
+
+# Model Specification & Selection: Questions to Ask
+
+1. What's my intended goal/outcome?  
+2. What data do I have?  
+3. Which predictors are significant?  
+**4. What's the expected performance of a model?**  
+**5. How do I improve a model's performance?**
+
+We will focus on Questions 4 & 5 tonight. 
+
+# Assessing Model Performance
+
+The best way to measure performance is to know the **true error rate**. The true error rate is calculated by comparing the model's predictions against actual outcomes in the **entire population**.  In reality, we usually are not working with the whole population. We are working with one or more samples from the population. 
+
+## Naive Approach 
+
+A *naive* way to estimate the true error rate is to apply our model to the entire sample (i.e. training dataset) and then calculate the error rate. The naive approach has several drawbacks:
+
+* Final model will overfit the training data. The problem is magnified when a model has a large number of parameters.    
+* Estimated error rate is likely to be lower than the true error rate.
+
+A better approach than the naive method is resampling.  
+
+# Resampling   
+
+Resampling refers to drawing repeated samples from the sample(s) we have. The goal of resampling is to gauge model performance. We will discuss four resampling methods.
+
+## Validation Set
+
+We discussed validation set approach in Week 2 when we covered decision trees. In particular, the validation set approach involves randomly dividing the available observations into two subgroups: a) a training set and b) a validation (or hold out) set. We fit our model with the training set and then tests the model's performance on the validation set. Common splits include 60-40 (60% training set and 40% test set), 70-30, and 80-20.
+
+
+Opioid Prescriber dataset redux!
+
+```{r}
+setwd("C:/Users/corylowe/OneDrive/Code/R Practice Code/Applied Data Mining_Portfolio/Week 6")
+prescribers<-read.csv("prescribers.csv")
+
+#View(prescribers)
+
+prescribers<-prescribers[,c(241,1:240,242:331)] #Rearranging the columns so that our target variable is first
+
+dim(prescribers)
+names(prescribers)
+
+table(prescribers$Opioid.Prescriber)
+```
+
+Let's do a training set of 80% and validation set of 20%. 
+
+```{r}
+set.seed(123) #set a seed to do draws from a random uniform distribution.
+prescribers_rand <- prescribers[order(runif(25000)), ] 
+prescribers_train <- prescribers_rand[1:20000, ] #Training data set; 20000 observations
+prescribers_test  <-prescribers_rand[20001:25000, ]
+```
+
+Checking the proportions of opioid prescriber in the test and train sets. They are roughly the same. 58.8% in train set are opioid prescribers; 58.6% in test set are opioid prescribers.
+
+```{r}
+dim(prescribers_train) #checking the split
+dim(prescribers_test) #checking the split
+prop.table(table(prescribers_train$Opioid.Prescriber)) #checking to see the class proportions between the training and test sets. 
+prop.table(table(prescribers_test$Opioid.Prescriber))
+```
+
+
+```{r}
+library(rpart)
+library(rpart.plot)
+
+prescribers_rpart <- rpart(prescribers_train$Opioid.Prescriber~., method="class", parms = list(split="gini"), data=prescribers_train)
+
+plot(prescribers_rpart, uniform=TRUE, main="Classification Tree for Opioid Prescribers")
+text(prescribers_rpart, use.n=TRUE, all=TRUE, cex=0.8)
+
+
+# Something a bit fancier
+library(rpart.plot)
+rpart.plot(prescribers_rpart, type=0, extra=101)
+rpart.plot(prescribers_rpart, type=1, extra=101)
+```
+
+```{r}
+library(caret)
+actual <- prescribers_test$Opioid.Prescriber
+predicted <- predict(prescribers_rpart, prescribers_test, type="class")
+results.matrix <- confusionMatrix(predicted, actual, positive="yes")
+print(results.matrix)
+```
+
+Sensivity = 70%; Specificity = 84% 
+
+Our decision tree does a better job of classifying the non-opioid prescribers than the opioid prescribers. 
+
+### Using the Caret Package to do Train & Test Set Splits
+
+```{r}
+set.seed(123)
+trainIndex <- createDataPartition(prescribers$Opioid.Prescriber, p = .8,list = FALSE,times = 1)
+prescribers_train_caret <- prescribers[ trainIndex,]
+prescribers_test_caret <- prescribers[ -trainIndex,]
+
+```
+
+```{r}
+
+prescribers_rpart_caret <- rpart(Opioid.Prescriber~., method="class", parms = list(split="gini"), data=prescribers_train_caret)
+
+plot(prescribers_rpart_caret, uniform=TRUE, main="Classification Tree for Opioid Prescribers")
+text(prescribers_rpart_caret, use.n=TRUE, all=TRUE, cex=0.8)
+
+rpart.plot(prescribers_rpart_caret, type=0, extra=101)
+rpart.plot(prescribers_rpart_caret, type=1, extra=101)
+
+actual <- prescribers_test_caret$Opioid.Prescriber
+predicted <- predict(prescribers_rpart_caret, prescribers_test_caret, type="class")
+results.matrix <- confusionMatrix(predicted, actual, positive="yes")
+print(results.matrix)
+```
+
+Sensitivity = 79%; Specificity = 75%. The caret approach creates a test set that shows the decision tree is doing slightly better at identifying opioid prescribers. Is there a more stable approach?
+
+## k-Fold Cross Validation
+
+k-fold cross validation is a resampling technique that divides the dataset into k groups, or folds, of equal size. Here is how it works:  
+
+1. Keep one fold as the validation (hold out) set. Fit the model on the other k-1 folds.  
+
+2. Test fitted model on the held out fold. Calculate the mean squared error (MSE) of the held out fold. 
+
+3. Repeat Steps 1 & 2 over and over aain so that a different fold is used as a validation set. **The true error rate is estimated as the average error rate of all repetitions.**  
+
+Use the **caret** package for this task.  
+
+We will divide the data set into 10-folds. 
+
+```{r}
+
+fitControl <- trainControl(method="cv", number=10) #10-fold cross validation
+
+set.seed(123)
+prescribers_10folds<-train(Opioid.Prescriber~., data=prescribers_train_caret, method="rpart", metric="Accuracy", trControl=fitControl)
+prescribers_10folds
+```
+
+Now we apply the decision tree on the test set. 
+
+```{r}
+actual <- prescribers_test_caret$Opioid.Prescriber
+predicted <- predict(prescribers_10folds, prescribers_test_caret, type="raw")
+results.matrix <- confusionMatrix(predicted, actual, positive="yes")
+print(results.matrix)
+```
+
+Sensitivity = 61%; Specificity = 89%
+
+
+### Kappa? 
+
+`Kappa = Pr(a) - Pr(e) / 1 - Pr(e)`
+
+Where, 
+
+Pr(a): proportion of actual agreement between the classifier and the true values  
+
+Pr(e): proportion of expected agreement between the classifier and the true values
+
+Kappa "adjusts accuracy by accounting for the possibility of a correct prediction by chance alone. Kappa values range to a maximum number of 1, which indicates perfect agreement between the model's predictions and the true values--a rare occurrence. Values less than one indicate imperfect agreement" (Lantz 2013, p. 303)
+
+
+
+### Repeated k-fold Cross Validation
+
+```{r}
+fitControl <- trainControl(method="cv", number=10, repeats=5) #10-fold cross validation
+
+set.seed(123)
+prescribers_10folds_rp<-train(Opioid.Prescriber~., data=prescribers_train_caret, method="rpart", metric="Accuracy", trControl=fitControl)
+prescribers_10folds_rp
+
+actual <- prescribers_test_caret$Opioid.Prescriber
+predicted <- predict(prescribers_10folds_rp, prescribers_test_caret, type="raw")
+results.matrix <- confusionMatrix(predicted, actual, positive="yes")
+print(results.matrix)
+```
+
+Sensitivity = 61%; Specificity = 89%
+
+## Leave-one-out Cross Validation (LOOCV)
+
+Leave one out is a degenerate case of k-fold cross validation, where K is chosen as the total number of observations. LOOCV uses all observations as the training set and leaves one observation out as the test set. The process repeats until all observations have been used as a test set.
+
+
+## Bootstrapping 
+
+Bootstrapping is a resampling technique that obtain distinct datasets by repeatedly sampling observations from the original dataset with replacement. 
+
+Each boostrapped dataset is created by sampling with replacement and is the same size as the original dataset. Consequently, some observations may appear more than once in a given boostrapped dataset while other observations may not appear at all.
+
+Note: The default method in the train() function in the caret package is the bootstrap.
+
+```{r}
+cvCtrl <- trainControl(method="boot", number=10) #10 resampling iterations
+set.seed(123)
+prescribers_bootstrap<-train(Opioid.Prescriber~., data=prescribers_train_caret, method="rpart", metric="Accuracy", trControl=cvCtrl)
+prescribers_bootstrap
+```
+
+```{r}
+actual <- prescribers_test_caret$Opioid.Prescriber
+predicted <- predict(prescribers_bootstrap, prescribers_test_caret, type="raw")
+results.matrix <- confusionMatrix(predicted, actual, positive="yes")
+print(results.matrix)
+```
+
+Sensitivity = 61%; Specificity = 89%
+
+## Last Words on Resampling
+
+A question you may be pondering about is "how many folds should I use?" The answer depends on the size of the dataset. For large datasets, you can use a small number of folds and still get an accurate test error estimate. For smaller datasets, you may have to use LOOCV. You should remember these rules:
+
+
+**Small number of folds** = variance of the test error estimate is smaller; test error estimate is more biased; computation time is less.  
+
+**Large number of folds** = variance of the test error estimate is larger; test error estimate is less biased; computation time is greater.
+
+
+# A Second Dataset
+
+For the second part of this class, we will use the Breast Cancer data set from the mlbench package. It's a smaller data set so easier for us to handle in class.
+
+```{r}
+library(mlbench)
+data("BreastCancer")
+str(BreastCancer)
+BC<-BreastCancer[-1] #removing ID column
+```
+
+```{r}
+set.seed(123)
+trainIndex <- createDataPartition(BC$Class, p = .8,list = FALSE,times = 1)
+head(trainIndex)
+BC_train_caret <- BC[ trainIndex,]
+BC_test_caret <- BC[ trainIndex,]
+```
+
+
+```{r}
+library(caret)
+BC_rpart_caret <- rpart(BC_train_caret$Class~., method="class", parms = list(split="gini"), data=BC_train_caret)
+
+plot(BC_rpart_caret, uniform=TRUE, main="Classification Tree for Opioid Prescribers")
+text(BC_rpart_caret, use.n=TRUE, all=TRUE, cex=0.8)
+
+rpart.plot(BC_rpart_caret, type=0, extra=101)
+rpart.plot(BC_rpart_caret, type=1, extra=101)
+
+actual <- BC_test_caret$Class
+predicted <- predict(BC_rpart_caret, BC_test_caret, type="class")
+results.matrix <- confusionMatrix(predicted, actual, positive="malignant")
+print(results.matrix)
+```
+
+Our decision tree model does a slightly better job at predicting malignant tumors (true positives) (97%) than benign tumors (96%). This is what we want to see!
+
+
+# Improving Model Performance: Ensemble Models Approach
+
+One decision tree suffers from high variance. The resulting tree depends on the training data. What we want is a procedure with low variance--meaning we should see similar results if the tree is applied repeatedly to distinct datasets. We will examine three ensemble models that are built on the basic decision trees:
+
+1. Bagging (bootstrap aggregation)  
+2. Random forests (many trees = a forest)  
+3. Boosting
+
+## Bagging
+
+Bagging is a 4 step process:  
+
+1. Generate B bootstrap samples from the training set.  
+
+2. Construct decision trees for all B bootstrap samples.  
+
+3. For each given test observation, we record the class predicted by each of the B trees.  
+
+4. The overall prediction is the most commonly occuring class among the B predictions. Majority voting wins.
+
+Bagging averages many trees so it reduces the variance of unstable procedures (such as decision trees!). Bagging leads to improved prediction. The tradeoff is you lose interpretability and the ability to see simple structuree in a tree.
+
+
+
+```{r}
+library(randomForest)
+set.seed(123) 
+
+#Set mtry to equal all predictors. This means all predictors should be considered at each split. This is what makes it "bagging." 
+
+BC.bag <- randomForest(Class~., mtry=9, data=BC_train_caret, na.action=na.omit, importance=TRUE)
+```
+
+### Out of Bag (OOB) Error
+
+A note on the out-of-bag (OOB) error is warranted. OOB is a measure of the test error popular in tree algorithms that use bootstrapping. Gareth et al. (2013) explained OOB as follows:
+
+"Recall that the key to bagging is that trees are repeatedly fit to bootstrapped subsets of the observations. One that can show that on average, each bagged tree makes use of around two-thirds of the observations. **The remaining one-third of the observations not used to fit a given bagged tree are referred to as out-of-bag (OOB) observations.** We can predict the response for the ith observation using each of the trees in which that observation was OOB. This will yield around B/3 predictions for the ith observation. In order to obtain a single prediction for the ith observation, we take majority vote. This lead to a single OOB prediction for the ith observation. An OOB prediction can be obtained in this way for each of the n observations, from which the overall OOB classification error can be computed. The resulting OOB error is a valid estimate of the test error for the bagged model, since the response for each observation is predicted using only the trees that were not fit using that observation....**It can be shown that with B sufficiently large, OOB error is virtually equivalent to leave-one-out cross-validation error**"(p. 317-318).
+
+```{r}
+print(BC.bag) #note the "out of bag" (OOB) error rate. 
+```
+
+Look at the mean decrease in accuracy of predictions in the OOB samples, when a given variable is excluded.
+
+```{r}
+importance(BC.bag, type=1)
+```
+
+Look at the mean decrease in node impurity resulting from splits over that variable.  
+
+```{r}
+importance(BC.bag, type=2)
+```
+
+```{r}
+actual <- BC_test_caret$Class 
+BC_predicted <- predict(BC.bag, newdata=BC_test_caret, type="class") 
+BC_results.matrix.bag <- confusionMatrix(BC_predicted, actual, positive="malignant") 
+print(BC_results.matrix.bag)
+```
+
+
+## Random Forest
+
+Random forests consider only a subset of the predictors at each split. This means the node splits are not dominated by one or a few strong predictors, and, thus, give other (i.e. less strong) predictors more chances to be used. When we average the resulting trees, we get more reliable results since the individual trees are not dominated by a few strong predictors.
+
+```{r}
+BC.RForest <- randomForest(Class ~.,data=BC_train_caret, mtry=3, ntree=600,na.action = na.omit, importance=TRUE) #default mtry = 3 and ntree= 500.
+print(BC.RForest) 
+importance(BC.RForest) 
+varImpPlot(BC.RForest) 
+
+actual <- BC_test_caret$Class 
+BC_predicted <- predict(BC.RForest, newdata=BC_test_caret, type="class") 
+BC_results.matrix.rf <- confusionMatrix(BC_predicted, actual, positive="malignant") 
+print(BC_results.matrix.rf)
+```
+
+## Boosting
+
+The boosting model involves:
+
+* We fit a decision tree to the entire training set.   
+
+* We "boost" the observations that were misclassified by giving them higher weights. We fit another decision tree for these misclassified cases.   
+
+* We add the new tree to the existing tree to update the misclassified cases. 
+
+Note that the trees are that built later depend greatly on the trees already built. Learning slowly has shown to improve model accuracy while holding down variability.
+
+```{r}
+library(adabag) #a popular boosting algorithm
+set.seed(123)
+BC_adaboost <- boosting.cv(Class ~.,data=BC_train_caret, boos=TRUE, v=10) #.cv is adding cross validation
+#don't worry about warning message. Also, this take a while to run.
+BC_adaboost$confusion #confusion matrix for boosting
+BC_adaboost$error #error rate for boosting (OOB)
+1-BC_adaboost$error #accuracy rate for boosting (OOB)
+```
+
+# ROC Curve: One More Performance Evaluation Metric 
+
+The ROC (receiver operating characteristics) curve displays the true positive rate (sensitivity) against the false positive rate (1-specificity). The closer the curve follows the left hand border and then the top left border of the ROC space, the more accurate the model.
+
+```{r}
+#Create a ROC curve
+library(ROCR)
+BC.RForest_predict_prob<-predict(BC.RForest, type="prob", BC_test_caret)# same as above for predict, but add "prob".
+BC.pred = prediction(BC.RForest_predict_prob[,2],BC_test_caret$Class)#use [,2] to pick the malignant class prob
+BC.RForest.perf = performance(BC.pred,"tpr","fpr") #true pos and false pos
+plot(BC.RForest.perf ,main="ROC Curve for Random Forest",col=2,lwd=2)
+abline(a=0,b=1,lwd=2,lty=2,col="gray")
+
+unlist(BC.RForest.perf@y.values) #This is the AUC value (area under the ROC curve)
+```
+
+
+
+
+      
+
